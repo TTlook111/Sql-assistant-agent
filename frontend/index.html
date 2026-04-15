@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Skill Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=ZCOOL+KuaiLe&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="top-bar">
+        <div>
+          <h1>Skill Studio</h1>
+          <p>上传、管理并使用你的 skills.md 与 AI 进行针对性对话</p>
+        </div>
+        <div class="top-actions">
+          <button id="importBtn" class="btn ghost" type="button">导入 skills.md</button>
+          <button id="exportBtn" class="btn" type="button">导出 skills.md</button>
+          <input id="fileInput" type="file" accept=".md,.markdown,text/markdown" hidden />
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel uploader-panel">
+          <h2>文件上传</h2>
+          <div id="dropZone" class="drop-zone" role="button" tabindex="0">
+            <p class="drop-title">拖拽 skills.md 到这里</p>
+            <p class="drop-sub">或点击选择文件</p>
+            <button id="selectFileBtn" class="btn secondary" type="button">选择文件</button>
+          </div>
+          <p id="uploadHint" class="hint">支持 Markdown，解析后会自动合并到技能库。</p>
+        </section>
+
+        <section class="panel manager-panel">
+          <div class="section-head">
+            <h2>技能管理</h2>
+            <div class="inline-actions">
+              <button id="addSkillBtn" class="btn secondary" type="button">新增技能</button>
+              <button id="batchDeleteBtn" class="btn danger" type="button">删除选中</button>
+            </div>
+          </div>
+
+          <form id="skillForm" class="skill-form" novalidate>
+            <h3 id="formTitle">新增技能</h3>
+            <div class="form-row">
+              <label for="nameInput">技能名称</label>
+              <input id="nameInput" name="name" type="text" maxlength="40" required />
+            </div>
+            <div class="form-row">
+              <label for="descInput">技能描述</label>
+              <textarea id="descInput" name="description" rows="3" maxlength="200" required></textarea>
+            </div>
+            <div class="form-grid">
+              <div class="form-row">
+                <label for="levelInput">熟练度</label>
+                <select id="levelInput" name="level" required>
+                  <option value="">请选择</option>
+                  <option value="初级">初级</option>
+                  <option value="中级">中级</option>
+                  <option value="高级">高级</option>
+                  <option value="专家">专家</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label for="tagsInput">标签（逗号分隔）</label>
+                <input id="tagsInput" name="tags" type="text" maxlength="120" />
+              </div>
+            </div>
+            <div class="inline-actions">
+              <button id="saveSkillBtn" class="btn" type="submit">保存技能</button>
+              <button id="cancelEditBtn" class="btn ghost" type="button">取消编辑</button>
+            </div>
+            <p id="formError" class="error-text" aria-live="polite"></p>
+          </form>
+
+          <div class="toolbar">
+            <label class="check-wrap">
+              <input id="selectAllCheckbox" type="checkbox" />
+              <span>全选</span>
+            </label>
+            <input id="searchInput" type="search" placeholder="搜索技能名称/标签" />
+          </div>
+          <div id="skillList" class="skill-list" aria-live="polite"></div>
+          <p id="emptyState" class="empty-state">还没有技能数据，先上传一个 skills.md 或手动新增。</p>
+        </section>
+
+        <section class="panel chat-panel">
+          <div class="section-head">
+            <h2>Agent 对话</h2>
+            <select id="chatSkillSelect" class="chat-select"></select>
+          </div>
+          <div id="chatWindow" class="chat-window"></div>
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" type="text" maxlength="500" placeholder="输入问题，例如：如何提升这个技能的项目实战能力？" />
+            <button class="btn" type="submit">发送</button>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <a
+      class="deerflow-signature"
+      href="https://deerflow.tech"
+      target="_blank"
+      rel="noreferrer"
+    >
+      Created By Deerflow
+    </a>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

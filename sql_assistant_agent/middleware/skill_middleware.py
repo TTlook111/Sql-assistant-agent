@@ -3,7 +3,9 @@ from typing import Callable
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.messages import SystemMessage
 
-from sql_assistant_agent.domain.skills import SKILLS
+from sql_assistant_agent.config.config import SKILL_DB_PATH
+from sql_assistant_agent.runtime.context import get_current_user_id
+from sql_assistant_agent.storage.skill_store import SkillStore
 from sql_assistant_agent.tools.load_skill import load_skill
 
 
@@ -14,11 +16,14 @@ class SkillMiddleware(AgentMiddleware):
     tools = [load_skill]
 
     def __init__(self) -> None:
-        # 初始化时预构建技能摘要，避免每次请求重复拼接字符串。
-        skills_list = []
-        for skill in SKILLS:
-            skills_list.append(f"- **{skill['name']}**: {skill['description']}")
-        self.skills_prompt = "\n".join(skills_list)
+        self.store = SkillStore(SKILL_DB_PATH)
+
+    def _build_skills_prompt(self, user_id: str) -> str:
+        self.store.ensure_seed_for_user(user_id)
+        skills = self.store.list_skills(user_id)
+        if not skills:
+            return "- 暂无可用技能。"
+        return "\n".join(f"- **{item['name']}**: {item['description']}" for item in skills)
 
     def wrap_model_call(
         self,
@@ -30,8 +35,10 @@ class SkillMiddleware(AgentMiddleware):
         # - 销售经理只注入 sales_analytics
         # - 仓储主管只注入 inventory_management
         # - 管理员注入全部技能
+        user_id = get_current_user_id()
+        skills_prompt = self._build_skills_prompt(user_id)
         skills_addendum = (
-            f"\n\n## 可用技能\n\n{self.skills_prompt}\n\n"
+            f"\n\n## 可用技能（用户：{user_id}）\n\n{skills_prompt}\n\n"
             "当你需要处理某一类请求的详细规则时，请使用 load_skill 工具。"
         )
 

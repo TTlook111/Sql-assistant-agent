@@ -7,6 +7,8 @@ from sql_assistant_agent.middleware.skill_middleware import SkillMiddleware
 
 
 def build_sql_assistant_agent():
+    if not DASHSCOPE_API_KEY:
+        raise ValueError("未检测到 DASHSCOPE_API_KEY，请先在 .env 文件中配置。")
     model = ChatTongyi(
         model_name="qwen3-max",
         dashscope_api_key=DASHSCOPE_API_KEY,
