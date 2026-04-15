@@ -1,0 +1,22 @@
+from langchain.agents import create_agent
+from langchain_community.chat_models.tongyi import ChatTongyi
+from langgraph.checkpoint.memory import InMemorySaver
+
+from sql_assistant_agent.config.config import DASHSCOPE_API_KEY
+from sql_assistant_agent.middleware.skill_middleware import SkillMiddleware
+
+
+def build_sql_assistant_agent():
+    model = ChatTongyi(
+        model_name="qwen3-max",
+        dashscope_api_key=DASHSCOPE_API_KEY,
+    )
+    return create_agent(
+        model,
+        system_prompt=(
+            "你是一个 SQL 查询助手，帮助用户针对业务数据库编写查询语句。"
+        ),
+        middleware=[SkillMiddleware()],
+        checkpointer=InMemorySaver(),
+    )
+
