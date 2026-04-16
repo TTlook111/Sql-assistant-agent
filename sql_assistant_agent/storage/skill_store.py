@@ -189,39 +189,6 @@ class SkillStore:
             )
             return self.get_skill_by_id(user_id, skill_id)  # type: ignore[return-value]
 
-    def update_skill(
-        self,
-        user_id: str,
-        skill_id: str,
-        *,
-        name: str,
-        description: str,
-        tags: list[str],
-        content: str,
-    ) -> dict[str, Any] | None:
-        current = self.get_skill_by_id(user_id, skill_id)
-        if not current:
-            return None
-        now = utc_now_iso()
-        with self._get_conn() as conn:
-            conn.execute(
-                """
-                UPDATE skills
-                SET name = ?, description = ?, tags_json = ?, content = ?, updated_at = ?
-                WHERE id = ? AND user_id = ?
-                """,
-                (
-                    name,
-                    description,
-                    json.dumps(tags, ensure_ascii=False),
-                    content,
-                    now,
-                    skill_id,
-                    user_id,
-                ),
-            )
-        return self.get_skill_by_id(user_id, skill_id)
-
     def delete_skill(self, user_id: str, skill_id: str) -> bool:
         with self._get_conn() as conn:
             cur = conn.execute(

@@ -28,10 +28,6 @@ class SkillCreatePayload(BaseModel):
     content: str = Field(min_length=1)
 
 
-class SkillUpdatePayload(SkillCreatePayload):
-    pass
-
-
 class BatchDeletePayload(BaseModel):
     ids: list[str] = Field(default_factory=list)
 
@@ -125,22 +121,6 @@ def create_skill(payload: SkillCreatePayload, user_id: str = Depends(get_user_id
         tags=[tag.strip() for tag in payload.tags if tag.strip()],
         content=payload.content.strip(),
     )
-    return {"item": item}
-
-
-@app.patch("/api/skills/{skill_id}")
-def update_skill(skill_id: str, payload: SkillUpdatePayload, user_id: str = Depends(get_user_id)) -> dict[str, Any]:
-    _ensure_user(user_id)
-    item = store.update_skill(
-        user_id,
-        skill_id,
-        name=payload.name.strip(),
-        description=payload.description.strip(),
-        tags=[tag.strip() for tag in payload.tags if tag.strip()],
-        content=payload.content.strip(),
-    )
-    if not item:
-        raise HTTPException(status_code=404, detail="技能不存在")
     return {"item": item}
 
 

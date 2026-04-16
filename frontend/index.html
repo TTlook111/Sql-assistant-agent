@@ -41,31 +41,9 @@
           <div class="section-head">
             <h2>技能管理</h2>
             <div class="inline-actions">
-              <button id="addSkillBtn" class="btn secondary" type="button">新增技能</button>
               <button id="batchDeleteBtn" class="btn danger" type="button">删除选中</button>
             </div>
           </div>
-
-          <form id="skillForm" class="skill-form" novalidate>
-            <h3 id="formTitle">新增技能</h3>
-            <div class="form-row">
-              <label for="nameInput">技能名称</label>
-              <input id="nameInput" name="name" type="text" maxlength="40" required />
-            </div>
-            <div class="form-row">
-              <label for="descInput">技能描述</label>
-              <textarea id="descInput" name="description" rows="3" maxlength="200" required></textarea>
-            </div>
-            <div class="form-row">
-              <label for="tagsInput">标签（逗号分隔）</label>
-              <input id="tagsInput" name="tags" type="text" maxlength="120" />
-            </div>
-            <div class="inline-actions">
-              <button id="saveSkillBtn" class="btn" type="submit">保存技能</button>
-              <button id="cancelEditBtn" class="btn ghost" type="button">取消编辑</button>
-            </div>
-            <p id="formError" class="error-text" aria-live="polite"></p>
-          </form>
 
           <div class="toolbar">
             <label class="check-wrap">
@@ -81,7 +59,6 @@
         <section class="panel chat-panel">
           <div class="section-head">
             <h2>Agent 对话</h2>
-            <select id="chatSkillSelect" class="chat-select"></select>
           </div>
           <div id="chatWindow" class="chat-window"></div>
           <form id="chatForm" class="chat-form">

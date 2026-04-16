@@ -12,11 +12,9 @@ function resolveUserId() {
 
 const state = {
   skills: [],
-  editingSkillId: null,
   selectedIds: new Set(),
   searchKeyword: "",
-  activeChatSkillId: "",
-  chats: {},
+  chats: [],
   userId: resolveUserId(),
   chatThreadId: null
 };
@@ -28,32 +26,16 @@ const el = {
   importBtn: document.getElementById("importBtn"),
   exportBtn: document.getElementById("exportBtn"),
   uploadHint: document.getElementById("uploadHint"),
-  skillForm: document.getElementById("skillForm"),
-  formTitle: document.getElementById("formTitle"),
-  nameInput: document.getElementById("nameInput"),
-  descInput: document.getElementById("descInput"),
-  tagsInput: document.getElementById("tagsInput"),
-  cancelEditBtn: document.getElementById("cancelEditBtn"),
-  formError: document.getElementById("formError"),
-  addSkillBtn: document.getElementById("addSkillBtn"),
   batchDeleteBtn: document.getElementById("batchDeleteBtn"),
   selectAllCheckbox: document.getElementById("selectAllCheckbox"),
   searchInput: document.getElementById("searchInput"),
   skillList: document.getElementById("skillList"),
   emptyState: document.getElementById("emptyState"),
-  chatSkillSelect: document.getElementById("chatSkillSelect"),
   chatWindow: document.getElementById("chatWindow"),
   chatForm: document.getElementById("chatForm"),
   chatInput: document.getElementById("chatInput"),
   toast: document.getElementById("toast")
 };
-
-function normalizeTags(value) {
-  return value
-    .split(/[,\uff0c]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 function getHeaders() {
   return { "x-user-id": state.userId };
@@ -96,7 +78,6 @@ async function fetchSkills() {
 function saveState() {
   const data = {
     chats: state.chats,
-    activeChatSkillId: state.activeChatSkillId,
     chatThreadId: state.chatThreadId
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -110,8 +91,7 @@ function loadState() {
       return;
     }
     const data = JSON.parse(raw);
-    state.chats = data.chats && typeof data.chats === "object" ? data.chats : {};
-    state.activeChatSkillId = data.activeChatSkillId || "";
+    state.chats = Array.isArray(data.chats) ? data.chats : [];
     state.chatThreadId = data.chatThreadId || null;
   } catch (error) {
     console.error(error);
@@ -127,31 +107,6 @@ function showToast(text, isError = false) {
   showToast._timer = window.setTimeout(() => {
     el.toast.classList.remove("show");
   }, 2200);
-}
-
-function validateSkillForm(payload) {
-  if (!payload.name.trim()) {
-    return "技能名称不能为空。";
-  }
-  if (!payload.description.trim()) {
-    return "技能描述不能为空。";
-  }
-  return "";
-}
-
-function setForm(skill = null) {
-  if (skill) {
-    state.editingSkillId = skill.id;
-    el.formTitle.textContent = "编辑技能";
-    el.nameInput.value = skill.name;
-    el.descInput.value = skill.description;
-    el.tagsInput.value = (skill.tags || []).join(", ");
-  } else {
-    state.editingSkillId = null;
-    el.formTitle.textContent = "新增技能";
-    el.skillForm.reset();
-  }
-  el.formError.textContent = "";
 }
 
 function getFilteredSkills() {
@@ -189,7 +144,6 @@ function renderSkillList() {
           <strong class="skill-title">${escapeHtml(skill.name)}</strong>
         </label>
         <div class="skill-actions">
-          <button class="btn ghost edit-btn" data-id="${skill.id}" type="button">编辑</button>
           <button class="btn danger delete-btn" data-id="${skill.id}" type="button">删除</button>
         </div>
       </div>
@@ -203,57 +157,20 @@ function renderSkillList() {
   el.skillList.appendChild(frag);
 }
 
-function renderChatSkillSelect() {
-  const current = state.activeChatSkillId;
-  el.chatSkillSelect.innerHTML = "";
-
-  if (!state.skills.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "暂无技能可选";
-    el.chatSkillSelect.appendChild(option);
-    state.activeChatSkillId = "";
-    renderChatWindow();
-    return;
-  }
-
-  const defaultOption = document.createElement("option");
-  defaultOption.value = "";
-  defaultOption.textContent = "请选择技能";
-  el.chatSkillSelect.appendChild(defaultOption);
-
-  state.skills.forEach((skill) => {
-    const option = document.createElement("option");
-    option.value = skill.id;
-    option.textContent = skill.name;
-    el.chatSkillSelect.appendChild(option);
-  });
-
-  const target = state.skills.some((s) => s.id === current) ? current : state.skills[0].id;
-  state.activeChatSkillId = target;
-  el.chatSkillSelect.value = target;
-  renderChatWindow();
-}
-
 function renderChatWindow() {
-  const skillId = state.activeChatSkillId;
   el.chatWindow.innerHTML = "";
-  if (!skillId) {
-    el.chatWindow.innerHTML = '<p class="chat-msg bot">请先新增或导入技能数据，再开始对话。</p>';
+  if (!state.skills.length) {
+    el.chatWindow.innerHTML = '<p class="chat-msg bot">请先上传 skills.md，随后可直接提问，Agent 会自动选择相关技能。</p>';
     return;
   }
 
-  const messages = state.chats[skillId] || [];
-  if (!messages.length) {
-    const skill = state.skills.find((item) => item.id === skillId);
-    el.chatWindow.innerHTML = `<p class="chat-msg bot">你当前选择的是「${escapeHtml(
-      skill?.name || ""
-    )}」。可以直接问我：学习路径、实战建议、常见误区或项目方案。</p>`;
+  if (!state.chats.length) {
+    el.chatWindow.innerHTML = '<p class="chat-msg bot">你可以直接提问，Agent 会根据问题自动路由技能并作答。</p>';
     return;
   }
 
   const frag = document.createDocumentFragment();
-  messages.forEach((msg) => {
+  state.chats.forEach((msg) => {
     const p = document.createElement("p");
     p.className = `chat-msg ${msg.role}`;
     p.textContent = msg.content;
@@ -271,11 +188,8 @@ function escapeHtml(text) {
     .replaceAll('"', "&quot;");
 }
 
-function addChatMessage(skillId, role, content) {
-  if (!state.chats[skillId]) {
-    state.chats[skillId] = [];
-  }
-  state.chats[skillId].push({
+function addChatMessage(role, content) {
+  state.chats.push({
     role,
     content,
     time: Date.now()
@@ -307,7 +221,7 @@ async function handleFile(file) {
 
 function renderAll() {
   renderSkillList();
-  renderChatSkillSelect();
+  renderChatWindow();
   saveState();
 }
 
@@ -342,50 +256,6 @@ function initEvents() {
     }
   });
 
-  el.skillForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const payload = {
-      name: el.nameInput.value.trim(),
-      description: el.descInput.value.trim(),
-      tags: normalizeTags(el.tagsInput.value || ""),
-      content: el.descInput.value.trim()
-    };
-    const error = validateSkillForm(payload);
-    if (error) {
-      el.formError.textContent = error;
-      return;
-    }
-
-    try {
-      if (state.editingSkillId) {
-        await apiRequest(`/skills/${state.editingSkillId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        showToast("技能已更新");
-      } else {
-        await apiRequest("/skills", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        showToast("技能已新增");
-      }
-      await fetchSkills();
-      setForm(null);
-      renderAll();
-    } catch (error) {
-      showToast(error.message || "保存失败", true);
-    }
-  });
-
-  el.cancelEditBtn.addEventListener("click", () => setForm(null));
-  el.addSkillBtn.addEventListener("click", () => {
-    setForm(null);
-    el.nameInput.focus();
-  });
-
   el.searchInput.addEventListener("input", (event) => {
     state.searchKeyword = event.target.value || "";
     renderSkillList();
@@ -400,13 +270,6 @@ function initEvents() {
     if (!id) {
       return;
     }
-    if (target.classList.contains("edit-btn")) {
-      const skill = state.skills.find((item) => item.id === id);
-      if (skill) {
-        setForm(skill);
-      }
-      return;
-    }
     if (target.classList.contains("delete-btn")) {
       if (!window.confirm("确认删除该技能吗？")) {
         return;
@@ -414,10 +277,6 @@ function initEvents() {
       try {
         await apiRequest(`/skills/${id}`, { method: "DELETE" });
         state.selectedIds.delete(id);
-        delete state.chats[id];
-        if (state.activeChatSkillId === id) {
-          state.activeChatSkillId = "";
-        }
         await fetchSkills();
         showToast("技能已删除");
         renderAll();
@@ -473,15 +332,6 @@ function initEvents() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: selected })
       });
-      const selectedSet = new Set(selected);
-      Object.keys(state.chats).forEach((chatId) => {
-        if (selectedSet.has(chatId)) {
-          delete state.chats[chatId];
-        }
-      });
-      if (selectedSet.has(state.activeChatSkillId)) {
-        state.activeChatSkillId = "";
-      }
       state.selectedIds = new Set();
       el.selectAllCheckbox.checked = false;
       await fetchSkills();
@@ -518,28 +368,17 @@ function initEvents() {
     }
   });
 
-  el.chatSkillSelect.addEventListener("change", (event) => {
-    state.activeChatSkillId = event.target.value || "";
-    renderChatWindow();
-    saveState();
-  });
-
   el.chatForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const text = el.chatInput.value.trim();
     if (!text) {
       return;
     }
-    if (!state.activeChatSkillId) {
-      showToast("请先选择一个技能。", true);
+    if (!state.skills.length) {
+      showToast("请先上传 skills.md。", true);
       return;
     }
-    const skill = state.skills.find((item) => item.id === state.activeChatSkillId);
-    if (!skill) {
-      showToast("选中技能不存在。", true);
-      return;
-    }
-    addChatMessage(skill.id, "user", text);
+    addChatMessage("user", text);
     renderChatWindow();
     el.chatInput.value = "";
     try {
@@ -547,16 +386,16 @@ function initEvents() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `当前技能：${skill.name}\n技能描述：${skill.description}\n标签：${(skill.tags || []).join(", ")}\n\n用户问题：${text}`,
+          message: text,
           thread_id: state.chatThreadId
         })
       });
       state.chatThreadId = result.thread_id || state.chatThreadId;
-      addChatMessage(skill.id, "bot", result.answer || "助手未返回内容。");
+      addChatMessage("bot", result.answer || "助手未返回内容。");
       renderChatWindow();
       saveState();
     } catch (error) {
-      addChatMessage(skill.id, "bot", `请求失败：${error.message || "未知错误"}`);
+      addChatMessage("bot", `请求失败：${error.message || "未知错误"}`);
       renderChatWindow();
       saveState();
     }
@@ -568,7 +407,6 @@ async function bootstrap() {
   if (el.uploadHint) {
     el.uploadHint.textContent = `当前用户：${state.userId}（可通过 ?user_id=xxx 切换）`;
   }
-  setForm(null);
   initEvents();
   try {
     await fetchSkills();
