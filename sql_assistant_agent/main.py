@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sql_assistant_agent.agent.builder import build_sql_assistant_agent
 from sql_assistant_agent.config.config import PROJECT_ROOT, SKILL_DB_PATH, SKILL_FILES_DIR
 from sql_assistant_agent.runtime.context import user_context
-from sql_assistant_agent.services.markdown_skills import export_skills_markdown, parse_skills_markdown
+from sql_assistant_agent.services.markdown_skills import export_skills_markdown
 from sql_assistant_agent.storage.skill_store import SkillStore
 
 app = FastAPI(title="SQL Assistant Agent API", version="0.1.0")
@@ -81,6 +81,11 @@ def _build_upload_target_path(user_id: str, filename: str) -> Path:
     user_dir = SKILL_FILES_DIR / user_id
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir / f"{uuid4().hex}_{_safe_upload_filename(filename)}"
+
+
+def _build_skill_description_from_markdown(text: str) -> str:
+    compact = " ".join(line.strip() for line in text.splitlines() if line.strip())
+    return (compact[:200] or "上传的技能文档").strip()
 
 
 def _unlink_source_file(path_value: str) -> None:
@@ -190,20 +195,21 @@ async def upload_skills(
     target_path = _build_upload_target_path(user_id, file.filename)
     target_path.write_bytes(content_bytes)
     text = content_bytes.decode("utf-8", errors="ignore")
-    parsed = parse_skills_markdown(text)
-    if not parsed:
+    content = text.strip()
+    if not content:
         _unlink_source_file(str(target_path))
-        raise HTTPException(status_code=400, detail="未识别到有效技能定义")
-    for item in parsed:
-        store.upsert_skill(
-            user_id,
-            name=item.name,
-            description=item.description,
-            tags=item.tags,
-            content=item.content,
-            source_file=str(target_path),
-        )
-    return {"imported_count": len(parsed), "items": store.list_skills(user_id)}
+        raise HTTPException(status_code=400, detail="文件内容为空")
+
+    skill_name = Path(file.filename).stem.strip() or "skills"
+    store.upsert_skill(
+        user_id,
+        name=skill_name,
+        description=_build_skill_description_from_markdown(content),
+        tags=[],
+        content=content,
+        source_file=str(target_path),
+    )
+    return {"imported_count": 1, "items": store.list_skills(user_id)}
 
 
 @app.get("/api/skills/export.md")
