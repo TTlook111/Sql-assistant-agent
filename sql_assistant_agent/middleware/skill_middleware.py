@@ -1,19 +1,25 @@
-from typing import Callable
+from typing import Callable, NotRequired
 
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.messages import SystemMessage
 
 from sql_assistant_agent.config.config import SKILL_DB_PATH
 from sql_assistant_agent.runtime.context import get_current_user_id
 from sql_assistant_agent.storage.skill_store import SkillStore
-from sql_assistant_agent.tools.load_skill import load_skill
+from sql_assistant_agent.tools.load_skill import load_skill, write_sql_query
+
+
+class CustomState(AgentState):
+    """自定义状态：记录当前线程已加载过的技能。"""
+
+    skills_loaded: NotRequired[list[str]]
 
 
 class SkillMiddleware(AgentMiddleware):
     """将技能说明注入系统提示词的中间件。"""
 
-    # 在 middleware 上注册工具，模型才知道可以调用 load_skill。
-    tools = [load_skill]
+    # 在 middleware 上注册工具，模型才知道可以调用对应工具。
+    tools = [load_skill, write_sql_query]
 
     def __init__(self) -> None:
         """初始化中间件并绑定技能存储。
@@ -90,7 +96,8 @@ class SkillMiddleware(AgentMiddleware):
         skills_addendum = (
             f"\n\n## 候选技能（自动路由，用户：{user_id}，来源：{mode_text}）\n\n{skills_prompt}\n\n"
             "你是 SQL 助手。请优先依据以上候选技能中的业务口径回答。"
-            "当需要字段级细节、枚举值定义、复杂规则或示例 SQL 时，调用 load_skill 工具加载完整技能内容后再生成 SQL。"
+            "当需要字段级细节、枚举值定义、复杂规则或示例 SQL 时，先调用 load_skill 加载完整技能内容；"
+            "随后可调用 write_sql_query 生成并校验 SQL。"
         )
 
         # 第 1 步：先复制当前系统消息的内容块，避免直接修改原对象。
