@@ -18,12 +18,32 @@ class SkillMiddleware(AgentMiddleware):
     def __init__(self) -> None:
         self.store = SkillStore(SKILL_DB_PATH)
 
-    def _build_skills_prompt(self, user_id: str) -> str:
+    def _build_skills_prompt(self, user_id: str, user_query: str) -> str:
         self.store.ensure_seed_for_user(user_id)
-        skills = self.store.list_skills(user_id)
+        skills = self.store.search_relevant_skills(user_id, user_query, limit=3)
         if not skills:
             return "- 暂无可用技能。"
-        return "\n".join(f"- **{item['name']}**: {item['description']}" for item in skills)
+        lines: list[str] = []
+        for item in skills:
+            summary = (item.get("description") or "").strip()
+            tags = ", ".join(item.get("tags", [])[:4])
+            tags_text = f"（tags: {tags}）" if tags else ""
+            lines.append(f"- **{item['name']}**: {summary}{tags_text}")
+        return "\n".join(lines)
+
+    def _extract_latest_user_query(self, request: ModelRequest) -> str:
+        messages = getattr(request, "messages", []) or []
+        for msg in reversed(messages):
+            role = getattr(msg, "type", "") or getattr(msg, "role", "")
+            if role not in {"human", "user"}:
+                continue
+            content = getattr(msg, "content", "")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                text_items = [item.get("text", "") for item in content if isinstance(item, dict)]
+                return "\n".join([text for text in text_items if text]).strip()
+        return ""
 
     def wrap_model_call(
         self,
@@ -36,10 +56,12 @@ class SkillMiddleware(AgentMiddleware):
         # - 仓储主管只注入 inventory_management
         # - 管理员注入全部技能
         user_id = get_current_user_id()
-        skills_prompt = self._build_skills_prompt(user_id)
+        user_query = self._extract_latest_user_query(request)
+        skills_prompt = self._build_skills_prompt(user_id, user_query)
         skills_addendum = (
-            f"\n\n## 可用技能（用户：{user_id}）\n\n{skills_prompt}\n\n"
-            "当你需要处理某一类请求的详细规则时，请使用 load_skill 工具。"
+            f"\n\n## 候选技能（自动路由，用户：{user_id}）\n\n{skills_prompt}\n\n"
+            "你是 SQL 助手。请优先依据以上候选技能中的业务口径回答。"
+            "当需要字段级细节、枚举值定义、复杂规则或示例 SQL 时，调用 load_skill 工具加载完整技能内容后再生成 SQL。"
         )
 
         # 第 1 步：先复制当前系统消息的内容块，避免直接修改原对象。

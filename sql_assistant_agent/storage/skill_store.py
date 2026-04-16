@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -100,7 +101,7 @@ class SkillStore:
                         user_id,
                         seed["name"],
                         seed["description"],
-                        json.dumps(["内置"], ensure_ascii=False),
+                        json.dumps(seed.get("tags", ["内置"]), ensure_ascii=False),
                         seed["content"].strip(),
                         "",
                         now,
@@ -216,6 +217,80 @@ class SkillStore:
             )
             return cur.rowcount
 
+    def search_relevant_skills(self, user_id: str, query: str, limit: int = 3) -> list[dict[str, Any]]:
+        """按 query 从技能库中检索最相关的技能。"""
+        skills = self.list_skills(user_id)
+        if not skills:
+            return []
+        query_norm = _normalize_text(query)
+        if not query_norm:
+            return skills[:limit]
+        tokens = _tokenize_text(query_norm)
+        ranked: list[tuple[int, dict[str, Any]]] = []
+        for skill in skills:
+            score = self._score_skill(skill, query_norm, tokens)
+            if score > 0:
+                ranked.append((score, skill))
+        ranked.sort(key=lambda item: (-item[0], item[1].get("updated_at", "")), reverse=False)
+        if ranked:
+            return [item[1] for item in ranked[:limit]]
+        return skills[:limit]
+
+    def find_best_skill_match(self, user_id: str, skill_name: str) -> dict[str, Any] | None:
+        """先精确匹配，再做轻量模糊匹配。"""
+        exact = self.get_skill_by_name(user_id, skill_name)
+        if exact:
+            return exact
+
+        query_norm = _normalize_text(skill_name)
+        if not query_norm:
+            return None
+        tokens = _tokenize_text(query_norm)
+        best: tuple[int, dict[str, Any]] | None = None
+        for skill in self.list_skills(user_id):
+            score = self._score_skill(skill, query_norm, tokens, content_weight=1)
+            if score <= 0:
+                continue
+            if best is None or score > best[0]:
+                best = (score, skill)
+        return best[1] if best else None
+
+    def _score_skill(
+        self,
+        skill: dict[str, Any],
+        query_norm: str,
+        tokens: list[str],
+        *,
+        content_weight: int = 2,
+    ) -> int:
+        name_text = _normalize_text(skill.get("name", ""))
+        desc_text = _normalize_text(skill.get("description", ""))
+        tags_text = _normalize_text(" ".join(skill.get("tags", [])))
+        content_text = _normalize_text(skill.get("content", ""))
+
+        score = 0
+        if query_norm == name_text:
+            score += 120
+        if query_norm in name_text:
+            score += 80
+        if query_norm in desc_text:
+            score += 35
+        if query_norm in tags_text:
+            score += 30
+        if query_norm in content_text:
+            score += 8
+
+        for token in tokens:
+            if token in name_text:
+                score += 25
+            if token in desc_text:
+                score += 12
+            if token in tags_text:
+                score += 10
+            if token in content_text:
+                score += content_weight
+        return score
+
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
@@ -228,3 +303,13 @@ class SkillStore:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+
+def _normalize_text(text: str) -> str:
+    normalized = re.sub(r"[_\-/]+", " ", str(text).lower())
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def _tokenize_text(text: str) -> list[str]:
+    return [token for token in re.split(r"\s+", text) if len(token) >= 2]

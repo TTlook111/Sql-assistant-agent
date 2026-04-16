@@ -19,9 +19,9 @@ def load_skill(skill_name: str) -> str:
     """
     user_id = get_current_user_id()
     _store.ensure_seed_for_user(user_id)
-    skill = _store.get_skill_by_name(user_id, skill_name)
+    skill = _store.find_best_skill_match(user_id, skill_name)
     if skill:
-        return f"已加载技能：{skill_name}\n\n{skill['content']}"
+        return f"已加载技能：{skill['name']}\n\n{skill['content']}"
 
     available = ", ".join(s["name"] for s in _store.list_skills(user_id))
     return f"未找到技能 '{skill_name}'。当前用户可用技能：{available or '无'}"

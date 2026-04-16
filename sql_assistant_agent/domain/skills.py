@@ -6,6 +6,7 @@ class Skill(TypedDict):
 
     name: str
     description: str
+    tags: list[str]
     content: str
 
 
@@ -13,6 +14,7 @@ SKILLS: list[Skill] = [
     {
         "name": "sales_analytics",
         "description": "销售分析相关的数据库结构与业务规则，覆盖客户、订单与营收分析。",
+        "tags": ["销售", "customers", "orders", "营收"],
         "content": """
 # 销售分析数据结构
 
@@ -72,6 +74,7 @@ LIMIT 10;
     {
         "name": "inventory_management",
         "description": "库存管理相关的数据库结构与业务规则，覆盖商品、仓库与库存变化。",
+        "tags": ["库存", "products", "inventory", "仓库"],
         "content": """# 库存管理数据结构
 
 ## 表结构
