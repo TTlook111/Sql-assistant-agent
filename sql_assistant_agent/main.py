@@ -165,9 +165,12 @@ async def upload_skills(
     if not content:
         raise HTTPException(status_code=400, detail="文件内容为空")
 
-    source = f"upload://{_safe_upload_filename(file.filename)}"
+    safe_name = _safe_upload_filename(file.filename)
+    saved_file = store.save_uploaded_markdown(user_id, safe_name, content)
+    source = str(saved_file)
     imported_count = store.import_skills_from_markdown(user_id, content, source)
     if imported_count <= 0:
+        _unlink_source_file(source)
         raise HTTPException(status_code=400, detail="未在文档中识别到可导入的技能段")
     return {"imported_count": imported_count, "items": store.list_skills(user_id)}
 

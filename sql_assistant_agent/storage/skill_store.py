@@ -44,8 +44,17 @@ class SkillStore:
         self._init_builtin_skills()
         user_file = self._user_file(user_id)
         user_file.parent.mkdir(parents=True, exist_ok=True)
+        self._user_uploads_dir(user_id).mkdir(parents=True, exist_ok=True)
         if not user_file.exists():
             user_file.write_text("# skills.md\n", encoding="utf-8")
+
+    def save_uploaded_markdown(self, user_id: str, filename: str, content: str) -> Path:
+        """保存用户上传的 markdown 原文件，并返回文件路径。"""
+        uploads_dir = self._user_uploads_dir(user_id)
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        target = uploads_dir / filename
+        target.write_text(content, encoding="utf-8")
+        return target
 
     def list_skills(self, user_id: str) -> list[dict[str, Any]]:
         """查询并返回用户可见的全部技能（用户 + 内置）。"""
@@ -160,9 +169,12 @@ class SkillStore:
 
     def import_skills_from_markdown(self, user_id: str, text: str, source_file: str) -> int:
         """从 markdown 文档批量导入技能段。"""
-        parsed = parse_skills_markdown(text, default_source_file=source_file.strip())
+        normalized_source = source_file.strip()
+        parsed = parse_skills_markdown(text, default_source_file=normalized_source)
         if not parsed:
             return 0
+        # 同一来源文件重复上传时，先清理该来源下旧技能，避免陈旧技能残留。
+        self.delete_skills_by_source_file(user_id, normalized_source)
         count = 0
         for item in parsed:
             self.upsert_skill(
@@ -171,7 +183,7 @@ class SkillStore:
                 description=item["description"],
                 tags=item["tags"],
                 content=item["content"],
-                source_file=item.get("source_file", source_file),
+                source_file=item.get("source_file", normalized_source),
             )
             count += 1
         return count
@@ -249,7 +261,13 @@ class SkillStore:
         return score
 
     def _user_file(self, user_id: str) -> Path:
-        return self.users_dir / user_id / "skills.md"
+        return self._user_dir(user_id) / "skills.md"
+
+    def _user_dir(self, user_id: str) -> Path:
+        return self.users_dir / user_id
+
+    def _user_uploads_dir(self, user_id: str) -> Path:
+        return self._user_dir(user_id) / "uploads"
 
     def _read_builtin_skills(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []

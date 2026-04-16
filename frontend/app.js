@@ -111,16 +111,30 @@ function hasUploadedSkills() {
 }
 
 function getEffectiveMode() {
+  if (!state.skills.length) {
+    return "none";
+  }
   return hasUploadedSkills() ? "uploaded" : "builtin_fallback";
 }
 
 function getModeLabel() {
-  return getEffectiveMode() === "uploaded" ? "上传优先生效" : "内置回退";
+  const mode = getEffectiveMode();
+  if (mode === "uploaded") {
+    return "上传优先生效";
+  }
+  if (mode === "builtin_fallback") {
+    return "内置回退";
+  }
+  return "无技能上下文";
 }
 
 function isSkillEffective(skill) {
   const uploaded = Boolean((skill.source_file || "").trim());
-  return getEffectiveMode() === "uploaded" ? uploaded : true;
+  const mode = getEffectiveMode();
+  if (mode === "uploaded") {
+    return uploaded;
+  }
+  return true;
 }
 
 function renderStatusStrip() {
@@ -203,16 +217,16 @@ function renderSkillList() {
 
 function renderChatWindow() {
   el.chatWindow.innerHTML = "";
-  if (!state.skills.length) {
-    el.chatWindow.innerHTML = '<p class="chat-msg bot">当前无技能可用，请先上传 skills.md。</p>';
-    return;
-  }
-
   if (!state.chats.length) {
-    const initialText =
-      getEffectiveMode() === "uploaded"
-        ? "你可以直接提问，Agent 将在“上传技能”范围内自动路由并作答。"
-        : "你可以直接提问，当前使用“内置技能回退”模式自动路由并作答。";
+    const mode = getEffectiveMode();
+    let initialText = "你可以直接提问，Agent 将基于当前上下文自动作答。";
+    if (mode === "uploaded") {
+      initialText = "你可以直接提问，Agent 将在“上传技能”范围内自动路由并作答。";
+    } else if (mode === "builtin_fallback") {
+      initialText = "你可以直接提问，当前使用“内置技能回退”模式自动路由并作答。";
+    } else if (mode === "none") {
+      initialText = "你可以直接提问；当前未检索到技能，Agent 将在无技能上下文下作答。";
+    }
     el.chatWindow.innerHTML = `<p class="chat-msg bot">${initialText}</p>`;
     return;
   }
@@ -320,7 +334,12 @@ function initEvents() {
       return;
     }
     if (target.classList.contains("delete-btn")) {
-      if (!window.confirm("确认删除该技能吗？")) {
+      const current = state.skills.find((item) => item.id === id);
+      const sourceFile = (current?.source_file || "").trim();
+      const confirmText = sourceFile
+        ? "该技能来自上传文件，删除后会同步删除同一文件导入的全部技能，确认继续吗？"
+        : "确认删除该技能吗？";
+      if (!window.confirm(confirmText)) {
         return;
       }
       try {
@@ -397,10 +416,6 @@ function initEvents() {
     if (!text) {
       return;
     }
-    if (!state.skills.length) {
-      showToast("请先上传 skills.md。", true);
-      return;
-    }
     addChatMessage("user", text);
     renderChatWindow();
     el.chatInput.value = "";
@@ -428,7 +443,7 @@ function initEvents() {
 async function bootstrap() {
   loadState();
   if (el.uploadHint) {
-    el.uploadHint.textContent = `当前用户：${state.userId}（可通过 ?user_id=xxx 切换隔离空间）`;
+    el.uploadHint.textContent = `当前用户：${state.userId}（按技能名更新；可通过 ?user_id=xxx 切换隔离空间）`;
   }
   initEvents();
   try {
