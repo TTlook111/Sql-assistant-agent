@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from sql_assistant_agent.config.config import SKILL_FILES_DIR
-from sql_assistant_agent.domain.skills import SKILLS
 from sql_assistant_agent.services.markdown_skills import export_skills_markdown, parse_skills_markdown
 
 
@@ -23,8 +22,7 @@ class SkillStore:
     - 用户技能：`agent/skills/users/<user_id>/skills.md`
     """
 
-    def __init__(self, db_path: Path) -> None:
-        _ = db_path  # 兼容历史调用参数，当前实现不再使用数据库。
+    def __init__(self) -> None:
         self.root_dir = SKILL_FILES_DIR
         self.builtin_dir = self.root_dir / "builtin"
         self.users_dir = self.root_dir / "users"
@@ -34,23 +32,12 @@ class SkillStore:
         self._init_builtin_skills()
 
     def _init_builtin_skills(self) -> None:
-        """初始化内置技能文件（每个技能一个 md）。"""
-        for seed in SKILLS:
-            skill_name = seed["name"].strip()
-            filename = f"{_slugify(skill_name)}.md"
-            target = self.builtin_dir / filename
-            if target.exists():
-                continue
-            payload = [
-                {
-                    "name": skill_name,
-                    "description": seed["description"],
-                    "tags": seed.get("tags", ["内置"]),
-                    "content": seed["content"].strip(),
-                    "source_file": "",
-                }
-            ]
-            target.write_text(export_skills_markdown(payload), encoding="utf-8")
+        """初始化内置技能目录。
+
+        内置技能来源固定为 `agent/skills/builtin/*.md` 文件，
+        不再从 Python 常量自动种子生成。
+        """
+        self.builtin_dir.mkdir(parents=True, exist_ok=True)
 
     def ensure_seed_for_user(self, user_id: str) -> None:
         """为用户准备 skills.md，并确保内置技能文件存在。"""
@@ -309,6 +296,11 @@ class SkillStore:
             name = str(item.get("name") or "").strip()
             if not name:
                 continue
+            # 兼容历史脏数据：过滤仅由空模板误解析出的占位技能。
+            content_text = str(item.get("content") or "").strip()
+            description_text = str(item.get("description") or "").strip()
+            if name == "skills" and description_text == "导入的技能文档" and content_text == "# skills.md":
+                continue
             items.append(
                 {
                     "id": f"{id_prefix}:{_slugify(name)}",
@@ -316,7 +308,7 @@ class SkillStore:
                     "name": name,
                     "description": str(item.get("description") or ""),
                     "tags": list(item.get("tags") or []),
-                    "content": str(item.get("content") or ""),
+                    "content": content_text,
                     "source_file": str(item.get("source_file") or ""),
                     "created_at": file_updated_at,
                     "updated_at": file_updated_at,

@@ -17,6 +17,4 @@ def _get_required_env(key: str) -> str:
 
 DASHSCOPE_API_KEY = _get_required_env("DASHSCOPE_API_KEY")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = PROJECT_ROOT / "data"
-SKILL_DB_PATH = DATA_DIR / "skills.db"
 SKILL_FILES_DIR = PROJECT_ROOT / "agent" / "skills"

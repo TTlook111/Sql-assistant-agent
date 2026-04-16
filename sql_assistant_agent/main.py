@@ -10,12 +10,12 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from sql_assistant_agent.agent.builder import build_sql_assistant_agent
-from sql_assistant_agent.config.config import PROJECT_ROOT, SKILL_DB_PATH, SKILL_FILES_DIR
+from sql_assistant_agent.config.config import PROJECT_ROOT, SKILL_FILES_DIR
 from sql_assistant_agent.runtime.context import user_context
 from sql_assistant_agent.storage.skill_store import SkillStore
 
 app = FastAPI(title="SQL Assistant Agent API", version="0.1.0")
-store = SkillStore(SKILL_DB_PATH)
+store = SkillStore()
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 SKILL_FILES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -70,17 +70,6 @@ def _safe_upload_filename(filename: str) -> str:
     raw = Path(filename or "skills.md").name.strip() or "skills.md"
     safe = "".join(ch if (ch.isalnum() or ch in {".", "_", "-"}) else "_" for ch in raw)
     return safe[:120] or "skills.md"
-
-
-def _build_upload_target_path(user_id: str, filename: str) -> Path:
-    user_dir = SKILL_FILES_DIR / user_id
-    user_dir.mkdir(parents=True, exist_ok=True)
-    return user_dir / f"{uuid4().hex}_{_safe_upload_filename(filename)}"
-
-
-def _build_skill_description_from_markdown(text: str) -> str:
-    compact = " ".join(line.strip() for line in text.splitlines() if line.strip())
-    return (compact[:200] or "上传的技能文档").strip()
 
 
 def _unlink_source_file(path_value: str) -> None:

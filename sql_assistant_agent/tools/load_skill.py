@@ -2,11 +2,10 @@ from langchain.messages import ToolMessage
 from langchain.tools import ToolRuntime, tool
 from langgraph.types import Command
 
-from sql_assistant_agent.config.config import SKILL_DB_PATH
 from sql_assistant_agent.runtime.context import get_current_user_id
 from sql_assistant_agent.storage.skill_store import SkillStore
 
-_store = SkillStore(SKILL_DB_PATH)
+_store = SkillStore()
 
 
 @tool

@@ -30,6 +30,12 @@ def parse_skills_markdown(text: str, *, default_source_file: str = "") -> list[d
         stripped = text.strip()
         if not stripped:
             return []
+        # 仅包含文档标题（如 "# skills.md"）时，视为“空技能文件”。
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return []
+        if all(line.startswith("#") for line in lines):
+            return []
         return [
             {
                 "name": "skills",

@@ -3,7 +3,6 @@ from typing import Callable, NotRequired
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.messages import SystemMessage
 
-from sql_assistant_agent.config.config import SKILL_DB_PATH
 from sql_assistant_agent.runtime.context import get_current_user_id
 from sql_assistant_agent.storage.skill_store import SkillStore
 from sql_assistant_agent.tools.load_skill import load_skill, write_sql_query
@@ -27,7 +26,7 @@ class SkillMiddleware(AgentMiddleware):
         Returns:
             None
         """
-        self.store = SkillStore(SKILL_DB_PATH)
+        self.store = SkillStore()
 
     def _build_skills_prompt(self, user_id: str, user_query: str) -> tuple[str, str]:
         """构建候选技能提示文本，并返回技能来源模式。
