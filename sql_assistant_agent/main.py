@@ -6,13 +6,12 @@ from typing import Annotated, Any
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from sql_assistant_agent.agent.builder import build_sql_assistant_agent
 from sql_assistant_agent.config.config import PROJECT_ROOT, SKILL_DB_PATH, SKILL_FILES_DIR
 from sql_assistant_agent.runtime.context import user_context
-from sql_assistant_agent.services.markdown_skills import export_skills_markdown
 from sql_assistant_agent.storage.skill_store import SkillStore
 
 app = FastAPI(title="SQL Assistant Agent API", version="0.1.0")
@@ -190,14 +189,6 @@ async def upload_skills(
         source_file=str(target_path),
     )
     return {"imported_count": 1, "items": store.list_skills(user_id)}
-
-
-@app.get("/api/skills/export.md")
-def export_skills(user_id: str = Depends(get_user_id)) -> PlainTextResponse:
-    _ensure_user(user_id)
-    md = export_skills_markdown(store.list_skills(user_id))
-    headers = {"Content-Disposition": 'attachment; filename="skills.md"'}
-    return PlainTextResponse(md, media_type="text/markdown; charset=utf-8", headers=headers)
 
 
 @app.post("/api/chat")

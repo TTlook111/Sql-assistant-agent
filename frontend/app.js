@@ -24,7 +24,6 @@ const el = {
   fileInput: document.getElementById("fileInput"),
   selectFileBtn: document.getElementById("selectFileBtn"),
   importBtn: document.getElementById("importBtn"),
-  exportBtn: document.getElementById("exportBtn"),
   uploadHint: document.getElementById("uploadHint"),
   batchDeleteBtn: document.getElementById("batchDeleteBtn"),
   selectAllCheckbox: document.getElementById("selectAllCheckbox"),
@@ -389,32 +388,6 @@ function initEvents() {
       renderAll();
     } catch (error) {
       showToast(error.message || "批量删除失败", true);
-    }
-  });
-
-  el.exportBtn.addEventListener("click", async () => {
-    if (!state.skills.length) {
-      showToast("没有可导出的技能数据。", true);
-      return;
-    }
-    try {
-      const response = await fetch(`${API_BASE}/skills/export.md`, { headers: getHeaders() });
-      if (!response.ok) {
-        throw new Error("导出失败");
-      }
-      const content = await response.text();
-      const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "skills.md";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      showToast("skills.md 已导出");
-    } catch (error) {
-      showToast(error.message || "导出失败", true);
     }
   });
 
