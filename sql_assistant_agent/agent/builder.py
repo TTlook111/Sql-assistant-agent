@@ -7,6 +7,11 @@ from sql_assistant_agent.middleware.skill_middleware import SkillMiddleware
 
 
 def build_sql_assistant_agent():
+    """构建并返回 SQL 助手 Agent 实例。
+
+    Returns:
+        已注入 SkillMiddleware 和内存检查点能力的 LangChain Agent。
+    """
     model = ChatTongyi(
         model="qwen3-max",
         api_key=DASHSCOPE_API_KEY,

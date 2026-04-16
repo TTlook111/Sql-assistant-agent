@@ -11,11 +11,12 @@ _store = SkillStore(SKILL_DB_PATH)
 def load_skill(skill_name: str) -> str:
     """将指定技能的完整内容加载到智能体上下文。
 
-    当你需要处理某一类请求的详细规则时使用该工具。
-    它会返回该技能的完整说明、策略与处理规范。
-
     Args:
-        skill_name: 要加载的技能名称（例如 "sales_analytics", "inventory_management"）
+        skill_name: 要加载的技能名称（例如 "sales_analytics", "inventory_management"）。
+
+    Returns:
+        成功时返回已加载技能名称和该技能完整 content；
+        未命中时返回当前生效来源及可用技能列表。
     """
     user_id = get_current_user_id()
     _store.ensure_seed_for_user(user_id)
@@ -23,6 +24,8 @@ def load_skill(skill_name: str) -> str:
     if skill:
         return f"已加载技能：{skill['name']}\n\n{skill['content']}"
 
-    available = ", ".join(s["name"] for s in _store.list_skills(user_id))
-    return f"未找到技能 '{skill_name}'。当前用户可用技能：{available or '无'}"
+    effective_skills, mode = _store.list_effective_skills(user_id)
+    mode_text = "用户上传 skills" if mode == "uploaded" else "内置 skills（回退）"
+    available = ", ".join(s["name"] for s in effective_skills)
+    return f"未找到技能 '{skill_name}'。当前生效来源：{mode_text}。可用技能：{available or '无'}"
 

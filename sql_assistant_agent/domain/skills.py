@@ -15,7 +15,8 @@ SKILLS: list[Skill] = [
         "name": "sales_analytics",
         "description": "销售分析相关的数据库结构与业务规则，覆盖客户、订单与营收分析。",
         "tags": ["销售", "customers", "orders", "营收"],
-        "content": """
+        "content": 
+"""
 # 销售分析数据结构
 
 ## 表结构
