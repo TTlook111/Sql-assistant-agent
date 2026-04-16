@@ -35,7 +35,6 @@ class SkillMiddleware(AgentMiddleware):
             - prompt: 注入系统提示词的候选技能摘要文本。
             - mode: 技能来源模式，"uploaded"、"builtin_fallback" 或 "none"。
         """
-        self.store.ensure_seed_for_user(user_id)
         skills = self.store.search_relevant_skills(user_id, user_query, limit=3)
         if not skills:
             return "- 暂无可用技能。", "none"
