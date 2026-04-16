@@ -171,24 +171,16 @@ async def upload_skills(
     if not file.filename or not file.filename.lower().endswith(".md"):
         raise HTTPException(status_code=400, detail="仅支持上传 .md 文件")
     content_bytes = await file.read()
-    target_path = _build_upload_target_path(user_id, file.filename)
-    target_path.write_bytes(content_bytes)
     text = content_bytes.decode("utf-8", errors="ignore")
     content = text.strip()
     if not content:
-        _unlink_source_file(str(target_path))
         raise HTTPException(status_code=400, detail="文件内容为空")
 
-    skill_name = Path(file.filename).stem.strip() or "skills"
-    store.upsert_skill(
-        user_id,
-        name=skill_name,
-        description=_build_skill_description_from_markdown(content),
-        tags=[],
-        content=content,
-        source_file=str(target_path),
-    )
-    return {"imported_count": 1, "items": store.list_skills(user_id)}
+    source = f"upload://{_safe_upload_filename(file.filename)}"
+    imported_count = store.import_skills_from_markdown(user_id, content, source)
+    if imported_count <= 0:
+        raise HTTPException(status_code=400, detail="未在文档中识别到可导入的技能段")
+    return {"imported_count": imported_count, "items": store.list_skills(user_id)}
 
 
 @app.post("/api/chat")
