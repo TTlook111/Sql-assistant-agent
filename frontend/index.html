@@ -17,7 +17,7 @@
       <header class="top-bar">
         <div>
           <h1>Skill Studio</h1>
-          <p>上传、管理并使用你的 skills.md 与 AI 进行针对性对话</p>
+          <p class="hero-subtitle">上传、管理 skills.md，并让 Agent 按技能上下文稳定作答</p>
         </div>
         <div class="top-actions">
           <button id="importBtn" class="btn ghost" type="button">导入 skills.md</button>
@@ -25,6 +25,12 @@
           <input id="fileInput" type="file" accept=".md,.markdown,text/markdown" hidden />
         </div>
       </header>
+
+      <section class="status-strip" aria-live="polite">
+        <span id="userBadge" class="badge">用户：-</span>
+        <span id="modeBadge" class="badge accent">生效模式：-</span>
+        <span id="countBadge" class="badge">技能数：-</span>
+      </section>
 
       <main class="layout">
         <section class="panel uploader-panel">
@@ -34,7 +40,7 @@
             <p class="drop-sub">或点击选择文件</p>
             <button id="selectFileBtn" class="btn secondary" type="button">选择文件</button>
           </div>
-          <p id="uploadHint" class="hint">支持 Markdown，解析后会自动合并到技能库。</p>
+          <p id="uploadHint" class="hint">支持 Markdown 文件上传，上传后会按文件名覆盖同名技能。</p>
         </section>
 
         <section class="panel manager-panel">
@@ -53,12 +59,13 @@
             <input id="searchInput" type="search" placeholder="搜索技能名称/标签" />
           </div>
           <div id="skillList" class="skill-list" aria-live="polite"></div>
-          <p id="emptyState" class="empty-state">还没有技能数据，先上传一个 skills.md 或手动新增。</p>
+          <p id="emptyState" class="empty-state">当前暂无可展示技能，请先上传 skills.md。</p>
         </section>
 
         <section class="panel chat-panel">
           <div class="section-head">
             <h2>Agent 对话</h2>
+            <span id="chatModeTip" class="chat-mode-tip">路由模式：-</span>
           </div>
           <div id="chatWindow" class="chat-window"></div>
           <form id="chatForm" class="chat-form">

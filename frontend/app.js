@@ -34,8 +34,16 @@ const el = {
   chatWindow: document.getElementById("chatWindow"),
   chatForm: document.getElementById("chatForm"),
   chatInput: document.getElementById("chatInput"),
-  toast: document.getElementById("toast")
+  toast: document.getElementById("toast"),
+  userBadge: document.getElementById("userBadge"),
+  modeBadge: document.getElementById("modeBadge"),
+  countBadge: document.getElementById("countBadge"),
+  chatModeTip: document.getElementById("chatModeTip")
 };
+
+function getStorageKey() {
+  return `${STORAGE_KEY}:${state.userId}`;
+}
 
 function getHeaders() {
   return { "x-user-id": state.userId };
@@ -80,13 +88,13 @@ function saveState() {
     chats: state.chats,
     chatThreadId: state.chatThreadId
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  localStorage.setItem(getStorageKey(), JSON.stringify(data));
   localStorage.setItem(USER_ID_KEY, state.userId);
 }
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey());
     if (!raw) {
       return;
     }
@@ -96,6 +104,40 @@ function loadState() {
   } catch (error) {
     console.error(error);
     showToast("读取本地数据失败，已使用空数据初始化。", true);
+  }
+}
+
+function hasUploadedSkills() {
+  return state.skills.some((skill) => Boolean((skill.source_file || "").trim()));
+}
+
+function getEffectiveMode() {
+  return hasUploadedSkills() ? "uploaded" : "builtin_fallback";
+}
+
+function getModeLabel() {
+  return getEffectiveMode() === "uploaded" ? "上传优先生效" : "内置回退";
+}
+
+function isSkillEffective(skill) {
+  const uploaded = Boolean((skill.source_file || "").trim());
+  return getEffectiveMode() === "uploaded" ? uploaded : true;
+}
+
+function renderStatusStrip() {
+  const uploadedCount = state.skills.filter((item) => Boolean((item.source_file || "").trim())).length;
+  const modeText = getModeLabel();
+  if (el.userBadge) {
+    el.userBadge.textContent = `用户：${state.userId}`;
+  }
+  if (el.modeBadge) {
+    el.modeBadge.textContent = `生效模式：${modeText}`;
+  }
+  if (el.countBadge) {
+    el.countBadge.textContent = `技能数：${state.skills.length}（上传 ${uploadedCount}）`;
+  }
+  if (el.chatModeTip) {
+    el.chatModeTip.textContent = `路由模式：${modeText}`;
   }
 }
 
@@ -135,8 +177,10 @@ function renderSkillList() {
 
   const frag = document.createDocumentFragment();
   skills.forEach((skill) => {
+    const sourceType = (skill.source_file || "").trim() ? "uploaded" : "builtin";
+    const sourceText = sourceType === "uploaded" ? "来源：上传" : "来源：内置";
     const item = document.createElement("article");
-    item.className = "skill-item";
+    item.className = `skill-item ${isSkillEffective(skill) ? "" : "inactive"}`.trim();
     item.innerHTML = `
       <div class="skill-main">
         <label class="check-wrap">
@@ -149,6 +193,7 @@ function renderSkillList() {
       </div>
       <p>${escapeHtml(skill.description)}</p>
       <div class="skill-meta">
+        <span class="source-chip ${sourceType === "builtin" ? "builtin" : ""}">${sourceText}</span>
         ${(skill.tags || []).map((tag) => `<span class="chip">#${escapeHtml(tag)}</span>`).join("")}
       </div>
     `;
@@ -160,12 +205,16 @@ function renderSkillList() {
 function renderChatWindow() {
   el.chatWindow.innerHTML = "";
   if (!state.skills.length) {
-    el.chatWindow.innerHTML = '<p class="chat-msg bot">请先上传 skills.md，随后可直接提问，Agent 会自动选择相关技能。</p>';
+    el.chatWindow.innerHTML = '<p class="chat-msg bot">当前无技能可用，请先上传 skills.md。</p>';
     return;
   }
 
   if (!state.chats.length) {
-    el.chatWindow.innerHTML = '<p class="chat-msg bot">你可以直接提问，Agent 会根据问题自动路由技能并作答。</p>';
+    const initialText =
+      getEffectiveMode() === "uploaded"
+        ? "你可以直接提问，Agent 将在“上传技能”范围内自动路由并作答。"
+        : "你可以直接提问，当前使用“内置技能回退”模式自动路由并作答。";
+    el.chatWindow.innerHTML = `<p class="chat-msg bot">${initialText}</p>`;
     return;
   }
 
@@ -220,6 +269,7 @@ async function handleFile(file) {
 }
 
 function renderAll() {
+  renderStatusStrip();
   renderSkillList();
   renderChatWindow();
   saveState();
@@ -405,7 +455,7 @@ function initEvents() {
 async function bootstrap() {
   loadState();
   if (el.uploadHint) {
-    el.uploadHint.textContent = `当前用户：${state.userId}（可通过 ?user_id=xxx 切换）`;
+    el.uploadHint.textContent = `当前用户：${state.userId}（可通过 ?user_id=xxx 切换隔离空间）`;
   }
   initEvents();
   try {
