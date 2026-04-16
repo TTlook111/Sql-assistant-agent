@@ -223,12 +223,10 @@ def export_skills(user_id: str = Depends(get_user_id)) -> PlainTextResponse:
 @app.post("/api/chat")
 def chat(payload: ChatPayload, user_id: str = Depends(get_user_id)) -> dict[str, str]:
     _ensure_user(user_id)
-    try:
-        agent = get_agent()
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    thread_id = payload.thread_id or str(uuid4())
-    config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+    agent = get_agent()
+    client_thread_id = payload.thread_id or str(uuid4())
+    checkpoint_thread_id = f"{user_id}:{client_thread_id}"
+    config = {"configurable": {"thread_id": checkpoint_thread_id, "user_id": user_id}}
     with user_context(user_id):
         try:
             result = agent.invoke(
@@ -237,7 +235,7 @@ def chat(payload: ChatPayload, user_id: str = Depends(get_user_id)) -> dict[str,
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"对话失败: {exc}") from exc
-    return {"thread_id": thread_id, "answer": _extract_assistant_text(result)}
+    return {"thread_id": client_thread_id, "answer": _extract_assistant_text(result)}
 
 
 @app.get("/")

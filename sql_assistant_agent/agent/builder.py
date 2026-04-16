@@ -8,8 +8,8 @@ from sql_assistant_agent.middleware.skill_middleware import SkillMiddleware
 
 def build_sql_assistant_agent():
     model = ChatTongyi(
-        model_name="qwen3-max",
-        dashscope_api_key=DASHSCOPE_API_KEY,
+        model="qwen3-max",
+        api_key=DASHSCOPE_API_KEY,
     )
     return create_agent(
         model,

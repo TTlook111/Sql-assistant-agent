@@ -86,17 +86,13 @@ class SkillStore:
 
     def ensure_seed_for_user(self, user_id: str) -> None:
         with self._get_conn() as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) AS count FROM skills WHERE user_id = ?",
-                (user_id,),
-            ).fetchone()["count"]
-            if count > 0:
-                return
             now = utc_now_iso()
             for seed in SKILLS:
                 conn.execute(
                     """
-                    INSERT INTO skills(id, user_id, name, description, tags_json, content, source_file, created_at, updated_at)
+                    INSERT OR IGNORE INTO skills(
+                        id, user_id, name, description, tags_json, content, source_file, created_at, updated_at
+                    )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
