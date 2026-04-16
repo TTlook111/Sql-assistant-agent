@@ -27,6 +27,7 @@ class SkillStore:
 
     def _init_db(self) -> None:
         with self._get_conn() as conn:
+            conn.execute("PRAGMA foreign_keys = OFF;")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS skills (
@@ -34,15 +35,54 @@ class SkillStore:
                     user_id TEXT NOT NULL,
                     name TEXT NOT NULL,
                     description TEXT NOT NULL,
-                    level TEXT NOT NULL,
                     tags_json TEXT NOT NULL,
                     content TEXT NOT NULL,
+                    source_file TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     UNIQUE(user_id, name)
                 );
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(skills);").fetchall()}
+            target_columns = {
+                "id",
+                "user_id",
+                "name",
+                "description",
+                "tags_json",
+                "content",
+                "source_file",
+                "created_at",
+                "updated_at",
+            }
+            if columns != target_columns:
+                source_file_expr = "source_file" if "source_file" in columns else "''"
+                conn.execute(
+                    """
+                    CREATE TABLE skills_v2 (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        tags_json TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        source_file TEXT NOT NULL DEFAULT '',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        UNIQUE(user_id, name)
+                    );
+                    """
+                )
+                conn.execute(
+                    f"""
+                    INSERT INTO skills_v2(id, user_id, name, description, tags_json, content, source_file, created_at, updated_at)
+                    SELECT id, user_id, name, description, tags_json, content, {source_file_expr}, created_at, updated_at
+                    FROM skills;
+                    """
+                )
+                conn.execute("DROP TABLE skills;")
+                conn.execute("ALTER TABLE skills_v2 RENAME TO skills;")
 
     def ensure_seed_for_user(self, user_id: str) -> None:
         with self._get_conn() as conn:
@@ -56,7 +96,7 @@ class SkillStore:
             for seed in SKILLS:
                 conn.execute(
                     """
-                    INSERT INTO skills(id, user_id, name, description, level, tags_json, content, created_at, updated_at)
+                    INSERT INTO skills(id, user_id, name, description, tags_json, content, source_file, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
@@ -64,9 +104,9 @@ class SkillStore:
                         user_id,
                         seed["name"],
                         seed["description"],
-                        "中级",
                         json.dumps(["内置"], ensure_ascii=False),
                         seed["content"].strip(),
+                        "",
                         now,
                         now,
                     ),
@@ -76,7 +116,7 @@ class SkillStore:
         with self._get_conn() as conn:
             rows = conn.execute(
                 """
-                SELECT id, user_id, name, description, level, tags_json, content, created_at, updated_at
+                SELECT id, user_id, name, description, tags_json, content, source_file, created_at, updated_at
                 FROM skills
                 WHERE user_id = ?
                 ORDER BY updated_at DESC
@@ -89,7 +129,7 @@ class SkillStore:
         with self._get_conn() as conn:
             row = conn.execute(
                 """
-                SELECT id, user_id, name, description, level, tags_json, content, created_at, updated_at
+                SELECT id, user_id, name, description, tags_json, content, source_file, created_at, updated_at
                 FROM skills
                 WHERE user_id = ? AND lower(name) = lower(?)
                 """,
@@ -101,7 +141,7 @@ class SkillStore:
         with self._get_conn() as conn:
             row = conn.execute(
                 """
-                SELECT id, user_id, name, description, level, tags_json, content, created_at, updated_at
+                SELECT id, user_id, name, description, tags_json, content, source_file, created_at, updated_at
                 FROM skills
                 WHERE user_id = ? AND id = ?
                 """,
@@ -115,9 +155,9 @@ class SkillStore:
         *,
         name: str,
         description: str,
-        level: str,
         tags: list[str],
         content: str,
+        source_file: str = "",
     ) -> dict[str, Any]:
         existing = self.get_skill_by_name(user_id, name)
         now = utc_now_iso()
@@ -126,17 +166,17 @@ class SkillStore:
                 conn.execute(
                     """
                     UPDATE skills
-                    SET description = ?, level = ?, tags_json = ?, content = ?, updated_at = ?
+                    SET description = ?, tags_json = ?, content = ?, source_file = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (description, level, json.dumps(tags, ensure_ascii=False), content, now, existing["id"]),
+                    (description, json.dumps(tags, ensure_ascii=False), content, source_file, now, existing["id"]),
                 )
                 return self.get_skill_by_id(user_id, existing["id"])  # type: ignore[return-value]
 
             skill_id = str(uuid.uuid4())
             conn.execute(
                 """
-                INSERT INTO skills(id, user_id, name, description, level, tags_json, content, created_at, updated_at)
+                INSERT INTO skills(id, user_id, name, description, tags_json, content, source_file, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -144,9 +184,9 @@ class SkillStore:
                     user_id,
                     name,
                     description,
-                    level,
                     json.dumps(tags, ensure_ascii=False),
                     content,
+                    source_file,
                     now,
                     now,
                 ),
@@ -160,7 +200,6 @@ class SkillStore:
         *,
         name: str,
         description: str,
-        level: str,
         tags: list[str],
         content: str,
     ) -> dict[str, Any] | None:
@@ -172,13 +211,12 @@ class SkillStore:
             conn.execute(
                 """
                 UPDATE skills
-                SET name = ?, description = ?, level = ?, tags_json = ?, content = ?, updated_at = ?
+                SET name = ?, description = ?, tags_json = ?, content = ?, updated_at = ?
                 WHERE id = ? AND user_id = ?
                 """,
                 (
                     name,
                     description,
-                    level,
                     json.dumps(tags, ensure_ascii=False),
                     content,
                     now,
@@ -207,15 +245,23 @@ class SkillStore:
             )
             return cur.rowcount
 
+    def delete_skills_by_source_file(self, user_id: str, source_file: str) -> int:
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM skills WHERE user_id = ? AND source_file = ?",
+                (user_id, source_file),
+            )
+            return cur.rowcount
+
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
             "user_id": row["user_id"],
             "name": row["name"],
             "description": row["description"],
-            "level": row["level"],
             "tags": json.loads(row["tags_json"]),
             "content": row["content"],
+            "source_file": row["source_file"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

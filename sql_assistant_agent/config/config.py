@@ -12,3 +12,4 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
 SKILL_DB_PATH = DATA_DIR / "skills.db"
+SKILL_FILES_DIR = PROJECT_ROOT / "agent" / "skills"

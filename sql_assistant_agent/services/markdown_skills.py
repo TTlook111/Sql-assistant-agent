@@ -8,20 +8,8 @@ from dataclasses import dataclass
 class ParsedSkill:
     name: str
     description: str
-    level: str
     tags: list[str]
     content: str
-
-
-def _normalize_level(value: str) -> str:
-    mapping = {
-        "beginner": "初级",
-        "intermediate": "中级",
-        "advanced": "高级",
-        "expert": "专家",
-    }
-    raw = value.strip().lower()
-    return mapping.get(raw, value.strip() or "中级")
 
 
 def _split_tags(value: str) -> list[str]:
@@ -42,7 +30,6 @@ def parse_skills_markdown(markdown: str) -> list[ParsedSkill]:
             continue
 
         description = ""
-        level = "中级"
         tags: list[str] = []
         content_lines: list[str] = []
 
@@ -50,12 +37,6 @@ def parse_skills_markdown(markdown: str) -> list[ParsedSkill]:
             clean = re.sub(r"^[-*]\s*", "", line)
             if re.match(r"^(description|desc|描述)\s*[:：]", clean, flags=re.IGNORECASE):
                 description = re.sub(r"^(description|desc|描述)\s*[:：]\s*", "", clean, flags=re.IGNORECASE).strip()
-                content_lines.append(clean)
-                continue
-            if re.match(r"^(level|熟练度)\s*[:：]", clean, flags=re.IGNORECASE):
-                level = _normalize_level(
-                    re.sub(r"^(level|熟练度)\s*[:：]\s*", "", clean, flags=re.IGNORECASE).strip()
-                )
                 content_lines.append(clean)
                 continue
             if re.match(r"^(tags?|标签)\s*[:：]", clean, flags=re.IGNORECASE):
@@ -73,7 +54,6 @@ def parse_skills_markdown(markdown: str) -> list[ParsedSkill]:
             ParsedSkill(
                 name=name,
                 description=description,
-                level=level,
                 tags=tags,
                 content=content,
             )
@@ -90,7 +70,6 @@ def export_skills_markdown(skills: list[dict]) -> str:
             [
                 f"## Skill: {skill['name']}",
                 f"Description: {skill.get('description', '')}",
-                f"Level: {skill.get('level', '中级')}",
                 f"Tags: {tags}",
                 "",
                 "### Content",

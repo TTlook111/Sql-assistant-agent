@@ -32,7 +32,6 @@ const el = {
   formTitle: document.getElementById("formTitle"),
   nameInput: document.getElementById("nameInput"),
   descInput: document.getElementById("descInput"),
-  levelInput: document.getElementById("levelInput"),
   tagsInput: document.getElementById("tagsInput"),
   cancelEditBtn: document.getElementById("cancelEditBtn"),
   formError: document.getElementById("formError"),
@@ -137,9 +136,6 @@ function validateSkillForm(payload) {
   if (!payload.description.trim()) {
     return "技能描述不能为空。";
   }
-  if (!payload.level.trim()) {
-    return "请选择熟练度等级。";
-  }
   return "";
 }
 
@@ -149,7 +145,6 @@ function setForm(skill = null) {
     el.formTitle.textContent = "编辑技能";
     el.nameInput.value = skill.name;
     el.descInput.value = skill.description;
-    el.levelInput.value = skill.level;
     el.tagsInput.value = (skill.tags || []).join(", ");
   } else {
     state.editingSkillId = null;
@@ -200,7 +195,6 @@ function renderSkillList() {
       </div>
       <p>${escapeHtml(skill.description)}</p>
       <div class="skill-meta">
-        <span class="chip">熟练度: ${escapeHtml(skill.level)}</span>
         ${(skill.tags || []).map((tag) => `<span class="chip">#${escapeHtml(tag)}</span>`).join("")}
       </div>
     `;
@@ -353,7 +347,6 @@ function initEvents() {
     const payload = {
       name: el.nameInput.value.trim(),
       description: el.descInput.value.trim(),
-      level: el.levelInput.value.trim(),
       tags: normalizeTags(el.tagsInput.value || ""),
       content: el.descInput.value.trim()
     };
@@ -554,7 +547,7 @@ function initEvents() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `当前技能：${skill.name}\n技能描述：${skill.description}\n熟练度：${skill.level}\n标签：${(skill.tags || []).join(", ")}\n\n用户问题：${text}`,
+          message: `当前技能：${skill.name}\n技能描述：${skill.description}\n标签：${(skill.tags || []).join(", ")}\n\n用户问题：${text}`,
           thread_id: state.chatThreadId
         })
       });
