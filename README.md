@@ -1,23 +1,23 @@
 # Sql-assistant-agent
 
-基于 `FastAPI + LangChain/LangGraph + SQLite` 的 SQL 助手项目，支持技能（skills）管理、`skills.md` 上传生效，以及带技能路由上下文的对话生成。
+基于 `FastAPI + LangChain/LangGraph + 文件系统存储` 的 SQL 助手项目，支持技能（skills）管理、`skills.md` 上传生效，以及带技能路由上下文的对话生成。
 
 ## 项目特性
 
 - 技能管理：支持技能列表、新增、单条删除、批量删除。
-- 上传技能文档：支持上传 `skills.md`（Markdown），自动入库并参与检索。
+- 上传技能文档：支持上传 `skills.md`（Markdown），原文件落盘并自动解析写入用户技能文件。
 - 生效策略：
   - 若存在用户上传技能，仅使用上传技能参与 Agent 路由。
   - 若无上传技能，自动回退到内置技能。
 - 对话能力：通过中间件注入候选技能摘要，并可由工具按需加载完整技能内容。
-- 多用户隔离：通过请求头 `x-user-id` 做用户级数据隔离。
+- 多用户隔离：通过请求头 `x-user-id` 做用户级数据隔离，不同用户使用独立 skills 文件目录。
 
 ## 技术栈
 
 - Python `3.13+`
 - FastAPI / Uvicorn
 - LangChain / LangGraph
-- SQLite（本地持久化技能数据）
+- 文件系统（`agent/skills` 目录）
 - 前端：原生 `HTML + CSS + JavaScript`
 
 ## 目录结构
@@ -31,7 +31,11 @@ sql-assistant-agent/
 │  ├─ tools/load_skill.py
 │  └─ ...
 ├─ frontend/                     # 前端页面与静态资源
-├─ data/skills.db                # SQLite 数据文件
+├─ agent/skills/
+│  ├─ builtin/*.md               # 内置技能（每个技能一个 md）
+│  └─ users/<user_id>/
+│     ├─ skills.md               # 用户技能主文件（供读取与检索）
+│     └─ uploads/*.md            # 用户上传原文件落盘目录
 ├─ pyproject.toml
 └─ README.md
 ```
@@ -89,5 +93,5 @@ uv run uvicorn sql_assistant_agent.main:app --reload
 ## 说明与约束
 
 - 上传文件仅支持 `.md`。
-- 若上传技能存在，将覆盖内置技能生效路径（仅上传技能参与路由）。
-- `data/skills.db` 为本地数据库文件，建议在生产场景使用独立持久化方案和备份策略。
+- 若上传技能存在，将覆盖内置技能生效路径（仅上传技能参与路由）；若无上传技能，自动回退到内置技能。
+- 同一来源文件重复上传时会先清理该来源旧技能，再导入新技能，避免陈旧技能残留。
