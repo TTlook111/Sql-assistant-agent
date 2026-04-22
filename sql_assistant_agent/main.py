@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import re
 from typing import Annotated, Any
 from uuid import uuid4
 
@@ -40,6 +41,8 @@ def get_user_id(x_user_id: Annotated[str | None, Header()] = None) -> str:
     user_id = (x_user_id or "").strip() or "demo-user"
     if len(user_id) > 64:
         raise HTTPException(status_code=400, detail="x-user-id 长度不能超过 64")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", user_id):
+        raise HTTPException(status_code=400, detail="x-user-id 仅支持字母、数字、下划线和短横线")
     return user_id
 
 
