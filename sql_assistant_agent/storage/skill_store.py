@@ -264,7 +264,8 @@ class SkillStore:
         return self._user_dir(user_id) / "skills.md"
 
     def _user_dir(self, user_id: str) -> Path:
-        return self.users_dir / user_id
+        safe_user_id = _validate_user_id(user_id)
+        return self.users_dir / safe_user_id
 
     def _user_uploads_dir(self, user_id: str) -> Path:
         return self._user_dir(user_id) / "uploads"
@@ -363,3 +364,12 @@ def _normalize_text(text: str) -> str:
 
 def _tokenize_text(text: str) -> list[str]:
     return [token for token in re.split(r"\s+", text) if len(token) >= 2]
+
+
+def _validate_user_id(user_id: str) -> str:
+    value = str(user_id).strip()
+    if not value:
+        raise ValueError("user_id 不能为空")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+        raise ValueError("非法 user_id：仅允许字母、数字、下划线和短横线，且长度不超过 64")
+    return value
