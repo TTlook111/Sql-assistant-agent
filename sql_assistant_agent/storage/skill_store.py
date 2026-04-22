@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,8 @@ class SkillStore:
         self.root_dir = SKILL_FILES_DIR
         self.builtin_dir = self.root_dir / "builtin"
         self.users_dir = self.root_dir / "users"
+        self._locks_guard = threading.Lock()
+        self._user_locks: dict[str, threading.RLock] = {}
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.builtin_dir.mkdir(parents=True, exist_ok=True)
         self.users_dir.mkdir(parents=True, exist_ok=True)
@@ -42,11 +45,13 @@ class SkillStore:
     def ensure_seed_for_user(self, user_id: str) -> None:
         """为用户准备 skills.md，并确保内置技能文件存在。"""
         self._init_builtin_skills()
-        user_file = self._user_file(user_id)
-        user_file.parent.mkdir(parents=True, exist_ok=True)
-        self._user_uploads_dir(user_id).mkdir(parents=True, exist_ok=True)
-        if not user_file.exists():
-            user_file.write_text("# skills.md\n", encoding="utf-8")
+        lock = self._get_user_lock(user_id)
+        with lock:
+            user_file = self._user_file(user_id)
+            user_file.parent.mkdir(parents=True, exist_ok=True)
+            self._user_uploads_dir(user_id).mkdir(parents=True, exist_ok=True)
+            if not user_file.exists():
+                user_file.write_text("# skills.md\n", encoding="utf-8")
 
     def save_uploaded_markdown(self, user_id: str, filename: str, content: str) -> Path:
         """保存用户上传的 markdown 原文件，并返回文件路径。"""
@@ -100,94 +105,106 @@ class SkillStore:
         source_file: str = "",
     ) -> dict[str, Any]:
         """按名称更新或插入用户技能。"""
-        now = utc_now_iso()
-        current = self._read_user_skills(user_id)
-        target_name = name.strip().lower()
-        updated = False
+        lock = self._get_user_lock(user_id)
+        with lock:
+            now = utc_now_iso()
+            current = self._read_user_skills(user_id)
+            target_name = name.strip().lower()
+            updated = False
 
-        for idx, item in enumerate(current):
-            if str(item.get("name", "")).strip().lower() != target_name:
-                continue
-            current[idx] = {
-                **item,
-                "name": name.strip(),
-                "description": description.strip(),
-                "tags": [tag.strip() for tag in tags if str(tag).strip()],
-                "content": content.strip(),
-                "source_file": source_file.strip(),
-                "updated_at": now,
-            }
-            updated = True
-            break
-
-        if not updated:
-            current.append(
-                {
-                    "id": f"user:{uuid.uuid4().hex}",
-                    "user_id": user_id,
+            for idx, item in enumerate(current):
+                if str(item.get("name", "")).strip().lower() != target_name:
+                    continue
+                current[idx] = {
+                    **item,
                     "name": name.strip(),
                     "description": description.strip(),
                     "tags": [tag.strip() for tag in tags if str(tag).strip()],
                     "content": content.strip(),
                     "source_file": source_file.strip(),
-                    "created_at": now,
                     "updated_at": now,
                 }
-            )
+                updated = True
+                break
 
-        self._write_user_skills(user_id, current)
-        item = self.get_skill_by_name(user_id, name)
-        if not item:
-            raise ValueError("写入技能文件失败")
-        return item
+            if not updated:
+                current.append(
+                    {
+                        "id": f"user:{uuid.uuid4().hex}",
+                        "user_id": user_id,
+                        "name": name.strip(),
+                        "description": description.strip(),
+                        "tags": [tag.strip() for tag in tags if str(tag).strip()],
+                        "content": content.strip(),
+                        "source_file": source_file.strip(),
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                )
+
+            self._write_user_skills(user_id, current)
+            item = self.get_skill_by_name(user_id, name)
+            if not item:
+                raise ValueError("写入技能文件失败")
+            return item
 
     def delete_skill(self, user_id: str, skill_id: str) -> bool:
         """删除单个用户技能。"""
-        current = self._read_user_skills(user_id)
-        remain = [item for item in current if item.get("id") != skill_id]
-        if len(remain) == len(current):
-            return False
-        self._write_user_skills(user_id, remain)
-        return True
+        lock = self._get_user_lock(user_id)
+        with lock:
+            current = self._read_user_skills(user_id)
+            remain = [item for item in current if item.get("id") != skill_id]
+            if len(remain) == len(current):
+                return False
+            self._write_user_skills(user_id, remain)
+            return True
 
     def delete_skills(self, user_id: str, skill_ids: list[str]) -> int:
         """批量删除多个用户技能。"""
-        deleted = 0
-        for skill_id in skill_ids:
-            if self.delete_skill(user_id, skill_id):
-                deleted += 1
-        return deleted
+        lock = self._get_user_lock(user_id)
+        with lock:
+            current = self._read_user_skills(user_id)
+            target_ids = {skill_id for skill_id in skill_ids}
+            remain = [item for item in current if item.get("id") not in target_ids]
+            deleted = len(current) - len(remain)
+            if deleted > 0:
+                self._write_user_skills(user_id, remain)
+            return deleted
 
     def delete_skills_by_source_file(self, user_id: str, source_file: str) -> int:
         """按来源文件路径删除用户技能。"""
-        current = self._read_user_skills(user_id)
-        remain = [item for item in current if (item.get("source_file") or "").strip() != source_file]
-        deleted = len(current) - len(remain)
-        if deleted > 0:
-            self._write_user_skills(user_id, remain)
-        return deleted
+        lock = self._get_user_lock(user_id)
+        with lock:
+            current = self._read_user_skills(user_id)
+            remain = [item for item in current if (item.get("source_file") or "").strip() != source_file]
+            deleted = len(current) - len(remain)
+            if deleted > 0:
+                self._write_user_skills(user_id, remain)
+            return deleted
 
     def import_skills_from_markdown(self, user_id: str, text: str, source_file: str) -> int:
         """从 markdown 文档批量导入技能段。"""
-        normalized_source = source_file.strip()
-        parsed = parse_skills_markdown(text, default_source_file=normalized_source)
-        if not parsed:
-            return 0
-        # 同一来源文件重复上传时，先清理该来源下旧技能，避免陈旧技能残留。
-        self.delete_skills_by_source_file(user_id, normalized_source)
-        count = 0
-        for item in parsed:
-            self.upsert_skill(
-                user_id,
-                name=item["name"],
-                description=item["description"],
-                tags=item["tags"],
-                content=item["content"],
-                # 不信任上传文档中的 Source 元数据，统一使用后端真实落盘路径。
-                source_file=normalized_source,
-            )
-            count += 1
-        return count
+        lock = self._get_user_lock(user_id)
+        with lock:
+            normalized_source = source_file.strip()
+            parsed = parse_skills_markdown(text, default_source_file=normalized_source)
+            if not parsed:
+                return 0
+            # 同一来源文件重复上传时，先清理该来源下旧技能，避免陈旧技能残留。
+            self.delete_skills_by_source_file(user_id, normalized_source)
+            count = 0
+            for item in parsed:
+                self.upsert_skill(
+                    user_id,
+                    name=item["name"],
+                    description=item["description"],
+                    tags=item["tags"],
+                    content=item["content"],
+                    # 不信任上传文档中的 Source 元数据，统一使用后端真实落盘路径。
+                    source_file=normalized_source,
+                )
+                count += 1
+            return count
 
     def search_relevant_skills(self, user_id: str, query: str, limit: int = 3) -> list[dict[str, Any]]:
         """按用户问题检索最相关技能 Top-K。"""
@@ -337,19 +354,32 @@ class SkillStore:
         return items
 
     def _write_user_skills(self, user_id: str, items: list[dict[str, Any]]) -> None:
-        user_file = self._user_file(user_id)
-        user_file.parent.mkdir(parents=True, exist_ok=True)
-        payload = [
-            {
-                "name": item["name"],
-                "description": item.get("description", ""),
-                "tags": item.get("tags", []),
-                "content": item.get("content", ""),
-                "source_file": item.get("source_file", ""),
-            }
-            for item in items
-        ]
-        user_file.write_text(export_skills_markdown(payload), encoding="utf-8")
+        lock = self._get_user_lock(user_id)
+        with lock:
+            user_file = self._user_file(user_id)
+            user_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = [
+                {
+                    "name": item["name"],
+                    "description": item.get("description", ""),
+                    "tags": item.get("tags", []),
+                    "content": item.get("content", ""),
+                    "source_file": item.get("source_file", ""),
+                }
+                for item in items
+            ]
+            temp_file = user_file.with_suffix(".tmp")
+            temp_file.write_text(export_skills_markdown(payload), encoding="utf-8")
+            temp_file.replace(user_file)
+
+    def _get_user_lock(self, user_id: str) -> threading.RLock:
+        safe_user_id = _validate_user_id(user_id)
+        with self._locks_guard:
+            lock = self._user_locks.get(safe_user_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._user_locks[safe_user_id] = lock
+            return lock
 
 
 def _slugify(text: str) -> str:
