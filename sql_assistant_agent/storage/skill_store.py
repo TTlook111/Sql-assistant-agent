@@ -183,7 +183,8 @@ class SkillStore:
                 description=item["description"],
                 tags=item["tags"],
                 content=item["content"],
-                source_file=item.get("source_file", normalized_source),
+                # 不信任上传文档中的 Source 元数据，统一使用后端真实落盘路径。
+                source_file=normalized_source,
             )
             count += 1
         return count

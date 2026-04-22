@@ -55,13 +55,13 @@ def parse_skills_markdown(text: str, *, default_source_file: str = "") -> list[d
 
         desc_match = re.search(r"^Description:\s*(.*)$", body, flags=re.MULTILINE)
         tags_match = re.search(r"^Tags:\s*(.*)$", body, flags=re.MULTILINE)
-        source_match = re.search(r"^Source:\s*(.*)$", body, flags=re.MULTILINE)
         content_match = re.search(r"^###\s+Content\s*$([\s\S]*)", body, flags=re.MULTILINE)
 
         description = (desc_match.group(1).strip() if desc_match else "") or f"{name} 相关技能"
         tags_text = tags_match.group(1).strip() if tags_match else ""
         tags = [tag.strip() for tag in tags_text.split(",") if tag.strip()] if tags_text else []
-        source_file = (source_match.group(1).strip() if source_match else "") or default_source_file
+        # 安全约束：忽略文档内部 Source 字段，来源路径仅信任后端传入值。
+        source_file = default_source_file
         content = content_match.group(1).strip() if content_match else body
 
         items.append(

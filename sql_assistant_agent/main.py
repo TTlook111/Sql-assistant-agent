@@ -75,15 +75,15 @@ def _safe_upload_filename(filename: str) -> str:
     return safe[:120] or "skills.md"
 
 
-def _unlink_source_file(path_value: str) -> None:
+def _unlink_source_file(user_id: str, path_value: str) -> None:
     if not path_value:
         return
-    base_dir = SKILL_FILES_DIR.resolve()
+    uploads_dir = (SKILL_FILES_DIR / "users" / user_id / "uploads").resolve()
     try:
         target = Path(path_value).resolve()
     except OSError:
         return
-    if target == base_dir or base_dir not in target.parents:
+    if target == uploads_dir or uploads_dir not in target.parents:
         return
     try:
         target.unlink(missing_ok=True)
@@ -124,7 +124,7 @@ def delete_skill(skill_id: str, user_id: str = Depends(get_user_id)) -> dict[str
     source_file = (current.get("source_file") or "").strip()
     if source_file:
         store.delete_skills_by_source_file(user_id, source_file)
-        _unlink_source_file(source_file)
+        _unlink_source_file(user_id, source_file)
     else:
         store.delete_skill(user_id, skill_id)
     return {"ok": True}
@@ -150,7 +150,7 @@ def delete_skills(payload: BatchDeletePayload, user_id: str = Depends(get_user_i
         deleted_count += store.delete_skills(user_id, plain_skill_ids)
     for source_file in source_files:
         deleted_count += store.delete_skills_by_source_file(user_id, source_file)
-        _unlink_source_file(source_file)
+        _unlink_source_file(user_id, source_file)
     return {"deleted_count": deleted_count}
 
 
@@ -173,7 +173,7 @@ async def upload_skills(
     source = str(saved_file)
     imported_count = store.import_skills_from_markdown(user_id, content, source)
     if imported_count <= 0:
-        _unlink_source_file(source)
+        _unlink_source_file(user_id, source)
         raise HTTPException(status_code=400, detail="未在文档中识别到可导入的技能段")
     return {"imported_count": imported_count, "items": store.list_skills(user_id)}
 
