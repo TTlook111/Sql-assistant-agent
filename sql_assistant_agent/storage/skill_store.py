@@ -3,10 +3,12 @@ from __future__ import annotations
 import re
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
+from filelock import FileLock
 from sql_assistant_agent.config.config import SKILL_FILES_DIR
 from sql_assistant_agent.services.markdown_skills import export_skills_markdown, parse_skills_markdown
 
@@ -29,6 +31,7 @@ class SkillStore:
         self.users_dir = self.root_dir / "users"
         self._locks_guard = threading.Lock()
         self._user_locks: dict[str, threading.RLock] = {}
+        self._file_locks: dict[str, FileLock] = {}
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.builtin_dir.mkdir(parents=True, exist_ok=True)
         self.users_dir.mkdir(parents=True, exist_ok=True)
@@ -45,8 +48,7 @@ class SkillStore:
     def ensure_seed_for_user(self, user_id: str) -> None:
         """为用户准备 skills.md，并确保内置技能文件存在。"""
         self._init_builtin_skills()
-        lock = self._get_user_lock(user_id)
-        with lock:
+        with self._lock_user_mutation(user_id):
             user_file = self._user_file(user_id)
             user_file.parent.mkdir(parents=True, exist_ok=True)
             self._user_uploads_dir(user_id).mkdir(parents=True, exist_ok=True)
@@ -105,8 +107,7 @@ class SkillStore:
         source_file: str = "",
     ) -> dict[str, Any]:
         """按名称更新或插入用户技能。"""
-        lock = self._get_user_lock(user_id)
-        with lock:
+        with self._lock_user_mutation(user_id):
             now = utc_now_iso()
             current = self._read_user_skills(user_id)
             target_name = name.strip().lower()
@@ -150,8 +151,7 @@ class SkillStore:
 
     def delete_skill(self, user_id: str, skill_id: str) -> bool:
         """删除单个用户技能。"""
-        lock = self._get_user_lock(user_id)
-        with lock:
+        with self._lock_user_mutation(user_id):
             current = self._read_user_skills(user_id)
             remain = [item for item in current if item.get("id") != skill_id]
             if len(remain) == len(current):
@@ -161,8 +161,7 @@ class SkillStore:
 
     def delete_skills(self, user_id: str, skill_ids: list[str]) -> int:
         """批量删除多个用户技能。"""
-        lock = self._get_user_lock(user_id)
-        with lock:
+        with self._lock_user_mutation(user_id):
             current = self._read_user_skills(user_id)
             target_ids = {skill_id for skill_id in skill_ids}
             remain = [item for item in current if item.get("id") not in target_ids]
@@ -173,8 +172,7 @@ class SkillStore:
 
     def delete_skills_by_source_file(self, user_id: str, source_file: str) -> int:
         """按来源文件路径删除用户技能。"""
-        lock = self._get_user_lock(user_id)
-        with lock:
+        with self._lock_user_mutation(user_id):
             current = self._read_user_skills(user_id)
             remain = [item for item in current if (item.get("source_file") or "").strip() != source_file]
             deleted = len(current) - len(remain)
@@ -184,8 +182,7 @@ class SkillStore:
 
     def import_skills_from_markdown(self, user_id: str, text: str, source_file: str) -> int:
         """从 markdown 文档批量导入技能段。"""
-        lock = self._get_user_lock(user_id)
-        with lock:
+        with self._lock_user_mutation(user_id):
             normalized_source = source_file.strip()
             parsed = parse_skills_markdown(text, default_source_file=normalized_source)
             if not parsed:
@@ -354,8 +351,7 @@ class SkillStore:
         return items
 
     def _write_user_skills(self, user_id: str, items: list[dict[str, Any]]) -> None:
-        lock = self._get_user_lock(user_id)
-        with lock:
+        with self._lock_user_mutation(user_id):
             user_file = self._user_file(user_id)
             user_file.parent.mkdir(parents=True, exist_ok=True)
             payload = [
@@ -380,6 +376,25 @@ class SkillStore:
                 lock = threading.RLock()
                 self._user_locks[safe_user_id] = lock
             return lock
+
+    def _get_user_file_lock(self, user_id: str) -> FileLock:
+        safe_user_id = _validate_user_id(user_id)
+        with self._locks_guard:
+            lock = self._file_locks.get(safe_user_id)
+            if lock is None:
+                lock_path = self._user_dir(safe_user_id) / "skills.lock"
+                lock_path.parent.mkdir(parents=True, exist_ok=True)
+                lock = FileLock(str(lock_path), timeout=10)
+                self._file_locks[safe_user_id] = lock
+            return lock
+
+    @contextmanager
+    def _lock_user_mutation(self, user_id: str) -> Iterator[None]:
+        local_lock = self._get_user_lock(user_id)
+        file_lock = self._get_user_file_lock(user_id)
+        with local_lock:
+            with file_lock:
+                yield
 
 
 def _slugify(text: str) -> str:

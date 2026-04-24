@@ -5,6 +5,7 @@ description = "FastAPI + LangGraph based SQL assistant with filesystem skills st
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115.0",
+    "filelock>=3.16.0",
     "python-multipart>=0.0.9",
     "uvicorn>=0.30.0",
     "langchain>=0.3.0",
