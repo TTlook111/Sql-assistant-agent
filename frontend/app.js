@@ -16,7 +16,8 @@ const state = {
   searchKeyword: "",
   chats: [],
   userId: resolveUserId(),
-  chatThreadId: null
+  chatThreadId: null,
+  dbConnected: false
 };
 
 const el = {
@@ -37,7 +38,18 @@ const el = {
   userBadge: document.getElementById("userBadge"),
   modeBadge: document.getElementById("modeBadge"),
   countBadge: document.getElementById("countBadge"),
-  chatModeTip: document.getElementById("chatModeTip")
+  chatModeTip: document.getElementById("chatModeTip"),
+  dbForm: document.getElementById("dbForm"),
+  dbHost: document.getElementById("dbHost"),
+  dbPort: document.getElementById("dbPort"),
+  dbUser: document.getElementById("dbUser"),
+  dbPassword: document.getElementById("dbPassword"),
+  dbDatabase: document.getElementById("dbDatabase"),
+  dbConnectBtn: document.getElementById("dbConnectBtn"),
+  dbDisconnectBtn: document.getElementById("dbDisconnectBtn"),
+  dbStatusBadge: document.getElementById("dbStatusBadge"),
+  dbTablesPreview: document.getElementById("dbTablesPreview"),
+  dbTablesList: document.getElementById("dbTablesList")
 };
 
 function getStorageKey() {
@@ -459,12 +471,108 @@ function initEvents() {
   });
 }
 
+function renderDbStatus() {
+  const connected = state.dbConnected;
+  el.dbStatusBadge.textContent = connected ? "已连接" : "未连接";
+  el.dbStatusBadge.className = `badge${connected ? " connected" : ""}`;
+  el.dbConnectBtn.style.display = connected ? "none" : "";
+  el.dbDisconnectBtn.style.display = connected ? "" : "none";
+  el.dbHost.disabled = connected;
+  el.dbPort.disabled = connected;
+  el.dbUser.disabled = connected;
+  el.dbPassword.disabled = connected;
+  el.dbDatabase.disabled = connected;
+}
+
+function renderDbTables(tables) {
+  if (!tables || !tables.length) {
+    el.dbTablesPreview.style.display = "none";
+    return;
+  }
+  el.dbTablesPreview.style.display = "";
+  el.dbTablesList.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  tables.forEach((t) => {
+    const div = document.createElement("div");
+    div.className = "db-table-item";
+    const comment = t.comment ? ` — ${escapeHtml(t.comment)}` : "";
+    div.innerHTML = `<span><span class="db-table-name">${escapeHtml(t.name)}</span><span class="db-table-comment">${comment}</span></span><span class="db-table-meta">${t.columns_count} 列</span>`;
+    frag.appendChild(div);
+  });
+  el.dbTablesList.appendChild(frag);
+}
+
+async function fetchDbStatus() {
+  try {
+    const result = await apiRequest("/database/status");
+    state.dbConnected = result.connected || false;
+    if (result.connected) {
+      el.dbHost.value = result.host || "";
+      el.dbPort.value = result.port || 3306;
+      el.dbUser.value = result.user || "";
+      el.dbDatabase.value = result.database || "";
+    }
+    renderDbStatus();
+  } catch (_err) {
+    // ignore
+  }
+}
+
+function initDbEvents() {
+  fetchDbStatus();
+
+  el.dbForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const host = el.dbHost.value.trim();
+    const port = parseInt(el.dbPort.value, 10) || 3306;
+    const user = el.dbUser.value.trim();
+    const password = el.dbPassword.value;
+    const database = el.dbDatabase.value.trim();
+    if (!host || !user || !database) {
+      showToast("请填写 Host、User 和 Database。", true);
+      return;
+    }
+    el.dbConnectBtn.disabled = true;
+    el.dbConnectBtn.textContent = "连接中...";
+    try {
+      const result = await apiRequest("/database/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host, port, user, password, database })
+      });
+      state.dbConnected = true;
+      renderDbStatus();
+      renderDbTables(result.tables || []);
+      showToast(`已连接 ${result.database}，共 ${(result.tables || []).length} 张表`);
+    } catch (error) {
+      showToast(error.message || "连接失败", true);
+    } finally {
+      el.dbConnectBtn.disabled = false;
+      el.dbConnectBtn.textContent = "连接";
+    }
+  });
+
+  el.dbDisconnectBtn.addEventListener("click", async () => {
+    try {
+      await apiRequest("/database/disconnect", { method: "POST" });
+      state.dbConnected = false;
+      renderDbStatus();
+      renderDbTables([]);
+      el.dbPassword.value = "";
+      showToast("已断开连接");
+    } catch (error) {
+      showToast(error.message || "断开失败", true);
+    }
+  });
+}
+
 async function bootstrap() {
   loadState();
   if (el.uploadHint) {
     el.uploadHint.textContent = `当前用户：${state.userId}（按技能名更新；可通过 ?user_id=xxx 切换隔离空间）`;
   }
   initEvents();
+  initDbEvents();
   try {
     await fetchSkills();
   } catch (error) {

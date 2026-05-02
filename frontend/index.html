@@ -32,6 +32,43 @@
       </section>
 
       <main class="layout">
+        <section class="panel db-panel">
+          <h2>数据库连接</h2>
+          <div class="db-status-row">
+            <span id="dbStatusBadge" class="badge">未连接</span>
+          </div>
+          <form id="dbForm" class="db-form">
+            <div class="db-field">
+              <label>Host</label>
+              <input id="dbHost" type="text" placeholder="127.0.0.1" value="127.0.0.1" />
+            </div>
+            <div class="db-field">
+              <label>Port</label>
+              <input id="dbPort" type="number" placeholder="3306" value="3306" />
+            </div>
+            <div class="db-field">
+              <label>User</label>
+              <input id="dbUser" type="text" placeholder="root" />
+            </div>
+            <div class="db-field">
+              <label>Password</label>
+              <input id="dbPassword" type="password" placeholder="密码" />
+            </div>
+            <div class="db-field">
+              <label>Database</label>
+              <input id="dbDatabase" type="text" placeholder="数据库名" />
+            </div>
+            <div class="db-actions">
+              <button id="dbConnectBtn" class="btn" type="submit">连接</button>
+              <button id="dbDisconnectBtn" class="btn danger" type="button" style="display:none">断开</button>
+            </div>
+          </form>
+          <div id="dbTablesPreview" class="db-tables-preview" style="display:none">
+            <h3>表列表</h3>
+            <div id="dbTablesList" class="db-tables-list"></div>
+          </div>
+        </section>
+
         <section class="panel uploader-panel">
           <h2>文件上传</h2>
           <div id="dropZone" class="drop-zone" role="button" tabindex="0">

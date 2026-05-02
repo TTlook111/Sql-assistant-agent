@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 from sql_assistant_agent.agent.builder import build_sql_assistant_agent
 from sql_assistant_agent.config.config import PROJECT_ROOT, SKILL_FILES_DIR
+from sql_assistant_agent.db.connection import DatabaseConfig, get_db_manager
+from sql_assistant_agent.db.schema import get_tables_summary, introspect_schema, format_schema_markdown
 from sql_assistant_agent.runtime.context import user_context
 from sql_assistant_agent.storage.skill_store import SkillStore
 
@@ -62,7 +64,7 @@ def _ensure_user(user_id: str) -> None:
     store.ensure_seed_for_user(user_id)
 
 
-_INTERNAL_PREFIXES = ("[规划]", "[技能加载]", "[校验]")
+_INTERNAL_PREFIXES = ("[规划]", "[技能加载]", "[校验]", "[Schema]")
 
 
 def _extract_assistant_text(result: dict[str, Any]) -> str:
@@ -106,9 +108,62 @@ def _unlink_source_file(user_id: str, path_value: str) -> None:
         return
 
 
+class DatabaseConnectPayload(BaseModel):
+    host: str = Field(min_length=1)
+    port: int = Field(default=3306, ge=1, le=65535)
+    user: str = Field(min_length=1)
+    password: str = ""
+    database: str = Field(min_length=1)
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/database/connect")
+def database_connect(
+    payload: DatabaseConnectPayload,
+    user_id: str = Depends(get_user_id),
+) -> dict[str, Any]:
+    db_manager = get_db_manager()
+    config = DatabaseConfig(
+        host=payload.host.strip(),
+        port=payload.port,
+        user=payload.user.strip(),
+        password=payload.password,
+        database=payload.database.strip(),
+    )
+    try:
+        result = db_manager.connect(user_id, config)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"连接失败: {exc}") from exc
+
+    conn = db_manager.get_raw_connection(user_id)
+    if conn:
+        try:
+            schema = introspect_schema(conn, config.database)
+            schema_md = format_schema_markdown(schema)
+            tables = get_tables_summary(schema)
+            db_manager.set_schema_cache(user_id, schema_md, tables)
+            result["tables"] = tables
+        finally:
+            conn.close()
+
+    return result
+
+
+@app.post("/api/database/disconnect")
+def database_disconnect(user_id: str = Depends(get_user_id)) -> dict[str, Any]:
+    db_manager = get_db_manager()
+    disconnected = db_manager.disconnect(user_id)
+    return {"disconnected": disconnected}
+
+
+@app.get("/api/database/status")
+def database_status(user_id: str = Depends(get_user_id)) -> dict[str, Any]:
+    db_manager = get_db_manager()
+    return db_manager.get_status(user_id)
 
 
 @app.get("/api/skills")

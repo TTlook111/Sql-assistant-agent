@@ -4,7 +4,9 @@ from langgraph.graph import END, START, StateGraph
 from sql_assistant_agent.agent.nodes import (
     planner_node,
     route_after_planner,
+    route_after_schema,
     route_after_validator,
+    schema_loader_node,
     skill_loader_node,
     sql_generator_node,
     validator_node,
@@ -16,6 +18,7 @@ def build_sql_assistant_agent():
     graph = StateGraph(AgentGraphState)
 
     graph.add_node("planner", planner_node)
+    graph.add_node("schema_loader", schema_loader_node)
     graph.add_node("skill_loader", skill_loader_node)
     graph.add_node("sql_generator", sql_generator_node)
     graph.add_node("validator", validator_node)
@@ -24,7 +27,12 @@ def build_sql_assistant_agent():
     graph.add_conditional_edges(
         "planner",
         route_after_planner,
-        {"skill_loader": "skill_loader", "sql_generator": "sql_generator", "__end__": END},
+        {"schema_loader": "schema_loader", "__end__": END},
+    )
+    graph.add_conditional_edges(
+        "schema_loader",
+        route_after_schema,
+        {"skill_loader": "skill_loader", "sql_generator": "sql_generator"},
     )
     graph.add_edge("skill_loader", "sql_generator")
     graph.add_edge("sql_generator", "validator")

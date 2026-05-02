@@ -17,6 +17,8 @@ class AgentGraphState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     planner_decision: NotRequired[PlannerDecision | None]
     skill_content: NotRequired[str]
+    db_schema: NotRequired[str]
+    db_connected: NotRequired[bool]
     sql_query: NotRequired[str]
     validation_passed: NotRequired[bool]
     validation_feedback: NotRequired[str]

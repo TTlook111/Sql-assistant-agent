@@ -14,6 +14,8 @@ from sql_assistant_agent.agent.prompts import (
 )
 from sql_assistant_agent.agent.state import AgentGraphState, PlannerDecision
 from sql_assistant_agent.config.config import DASHSCOPE_API_KEY
+from sql_assistant_agent.db.connection import get_db_manager
+from sql_assistant_agent.db.schema import format_schema_markdown, introspect_schema
 from sql_assistant_agent.runtime.context import get_current_user_id
 from sql_assistant_agent.storage.skill_store import SkillStore
 
@@ -74,8 +76,7 @@ def planner_node(state: AgentGraphState) -> dict[str, Any]:
     system_prompt = PLANNER_SYSTEM_PROMPT.format(skills_summary=skills_summary)
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_query)]
 
-    model = _model
-    response = model.invoke(messages)
+    response = _model.invoke(messages)
     response_text = response.content if isinstance(response.content, str) else ""
 
     parsed = _parse_json_from_text(response_text)
@@ -108,6 +109,50 @@ def planner_node(state: AgentGraphState) -> dict[str, Any]:
         "planner_decision": decision,
         "messages": [AIMessage(content=f"[规划] {decision['reasoning']}")],
     }
+
+
+def schema_loader_node(state: AgentGraphState) -> dict[str, Any]:
+    user_id = get_current_user_id()
+    db_manager = get_db_manager()
+
+    if not db_manager.is_connected(user_id):
+        return {
+            "db_schema": "",
+            "db_connected": False,
+            "messages": [AIMessage(content="[Schema] 数据库未连接，将使用技能文档生成 SQL。")],
+        }
+
+    cached = db_manager.get_schema_cache(user_id)
+    if cached:
+        return {
+            "db_schema": cached,
+            "db_connected": True,
+            "messages": [],
+        }
+
+    conn = db_manager.get_raw_connection(user_id)
+    if not conn:
+        return {
+            "db_schema": "",
+            "db_connected": False,
+            "messages": [AIMessage(content="[Schema] 获取数据库连接失败。")],
+        }
+
+    try:
+        info = db_manager.get_connection_info(user_id)
+        database = info.config.database if info else ""
+        schema = introspect_schema(conn, database)
+        schema_md = format_schema_markdown(schema)
+        tables_summary = schema.get("tables", [])
+        db_manager.set_schema_cache(user_id, schema_md, tables_summary)
+        table_names = ", ".join(t["name"] for t in tables_summary[:10])
+        return {
+            "db_schema": schema_md,
+            "db_connected": True,
+            "messages": [AIMessage(content=f"[Schema] 已加载 {len(tables_summary)} 张表：{table_names}")],
+        }
+    finally:
+        conn.close()
 
 
 def skill_loader_node(state: AgentGraphState) -> dict[str, Any]:
@@ -144,21 +189,27 @@ def sql_generator_node(state: AgentGraphState) -> dict[str, Any]:
     user_id = get_current_user_id()
     user_query = _extract_latest_user_query(state)
     skill_content = state.get("skill_content", "")
+    db_schema = state.get("db_schema", "")
 
     if not skill_content:
         skills_summary = _build_skills_summary(user_id, user_query)
         skill_content = f"当前无已加载技能，以下是可用技能摘要：\n{skills_summary}"
+
+    if not db_schema:
+        db_schema = "未连接数据库，无 Schema 信息。请依据技能文档中的表结构生成 SQL。"
 
     validation_feedback = state.get("validation_feedback", "")
     retry_context = ""
     if validation_feedback:
         retry_context = f"\n\n## 上次校验反馈（请据此修正 SQL）\n{validation_feedback}"
 
-    system_prompt = SQL_GENERATOR_SYSTEM_PROMPT.format(skill_content=skill_content) + retry_context
+    system_prompt = SQL_GENERATOR_SYSTEM_PROMPT.format(
+        skill_content=skill_content,
+        db_schema=db_schema,
+    ) + retry_context
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_query)]
 
-    model = _model
-    response = model.invoke(messages)
+    response = _model.invoke(messages)
     response_text = response.content if isinstance(response.content, str) else ""
 
     sql_query = _extract_sql_from_text(response_text)
@@ -173,18 +224,22 @@ def sql_generator_node(state: AgentGraphState) -> dict[str, Any]:
 def validator_node(state: AgentGraphState) -> dict[str, Any]:
     sql_query = state.get("sql_query", "")
     skill_content = state.get("skill_content", "")
+    db_schema = state.get("db_schema", "")
 
     if not sql_query:
         return {"validation_passed": True, "validation_feedback": ""}
 
+    if not db_schema:
+        db_schema = "未连接数据库，无 Schema 信息。"
+
     system_prompt = VALIDATOR_SYSTEM_PROMPT.format(
         skill_content=skill_content or "无技能文档",
+        db_schema=db_schema,
         sql_query=sql_query,
     )
     messages = [SystemMessage(content=system_prompt), HumanMessage(content="请校验上述 SQL。")]
 
-    model = _model
-    response = model.invoke(messages)
+    response = _model.invoke(messages)
     response_text = response.content if isinstance(response.content, str) else ""
 
     parsed = _parse_json_from_text(response_text)
@@ -219,6 +274,14 @@ def route_after_planner(state: AgentGraphState) -> str:
     action = decision.get("action", "load_skill")
     if action == "reply":
         return "__end__"
+    if action == "direct_sql":
+        return "schema_loader"
+    return "schema_loader"
+
+
+def route_after_schema(state: AgentGraphState) -> str:
+    decision = state.get("planner_decision") or {}
+    action = decision.get("action", "load_skill")
     if action == "direct_sql":
         return "sql_generator"
     return "skill_loader"

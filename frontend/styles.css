@@ -146,7 +146,7 @@ p {
 .layout {
   display: grid;
   gap: 14px;
-  grid-template-columns: 0.92fr 1.58fr 1fr;
+  grid-template-columns: 0.8fr 0.8fr 1.4fr 1fr;
 }
 
 .panel {
@@ -555,6 +555,12 @@ select:focus {
   }
 }
 
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 760px) {
   .app-shell {
     width: min(1400px, 94%);
@@ -630,4 +636,94 @@ select:focus {
 .validation-badge.failed {
   background: rgba(255, 125, 168, 0.17);
   color: #ffd8e8;
+}
+
+.db-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.db-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.db-status-row .badge.connected {
+  border-color: rgba(101, 241, 180, 0.5);
+  background: rgba(56, 172, 124, 0.18);
+  color: #bfffe2;
+}
+
+.db-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.db-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.db-field label {
+  font-size: 0.82rem;
+  color: #b4c1ea;
+}
+
+.db-field input {
+  font-size: 0.88rem;
+  padding: 6px 8px;
+}
+
+.db-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.db-tables-preview {
+  margin-top: 8px;
+  border-top: 1px solid rgba(168, 181, 255, 0.15);
+  padding-top: 8px;
+}
+
+.db-tables-preview h3 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
+.db-tables-list {
+  display: grid;
+  gap: 4px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.db-table-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  background: rgba(12, 18, 42, 0.85);
+  border: 1px solid rgba(168, 181, 255, 0.12);
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
+.db-table-name {
+  color: #c2fcff;
+  font-weight: 600;
+}
+
+.db-table-comment {
+  color: #9ba8d6;
+  font-size: 0.78rem;
+}
+
+.db-table-meta {
+  color: #7a8bc0;
+  font-size: 0.76rem;
 }
