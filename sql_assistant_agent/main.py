@@ -37,6 +37,13 @@ class ChatPayload(BaseModel):
     thread_id: str | None = None
 
 
+class ChatResponse(BaseModel):
+    thread_id: str
+    answer: str
+    sql_query: str = ""
+    validation_passed: bool = True
+
+
 def get_user_id(x_user_id: Annotated[str | None, Header()] = None) -> str:
     user_id = (x_user_id or "").strip() or "demo-user"
     if len(user_id) > 64:
@@ -179,7 +186,7 @@ async def upload_skills(
 
 
 @app.post("/api/chat")
-def chat(payload: ChatPayload, user_id: str = Depends(get_user_id)) -> dict[str, str]:
+def chat(payload: ChatPayload, user_id: str = Depends(get_user_id)) -> ChatResponse:
     _ensure_user(user_id)
     agent = get_agent()
     client_thread_id = payload.thread_id or str(uuid4())
@@ -193,7 +200,12 @@ def chat(payload: ChatPayload, user_id: str = Depends(get_user_id)) -> dict[str,
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"对话失败: {exc}") from exc
-    return {"thread_id": client_thread_id, "answer": _extract_assistant_text(result)}
+    return ChatResponse(
+        thread_id=client_thread_id,
+        answer=_extract_assistant_text(result),
+        sql_query=result.get("sql_query", ""),
+        validation_passed=result.get("validation_passed", True),
+    )
 
 
 @app.get("/")

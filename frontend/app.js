@@ -233,10 +233,25 @@ function renderChatWindow() {
 
   const frag = document.createDocumentFragment();
   state.chats.forEach((msg) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = `chat-msg-wrap ${msg.role}`;
+
     const p = document.createElement("p");
     p.className = `chat-msg ${msg.role}`;
     p.textContent = msg.content;
-    frag.appendChild(p);
+    wrapper.appendChild(p);
+
+    if (msg.sql_query) {
+      const sqlBlock = document.createElement("div");
+      sqlBlock.className = "sql-block";
+      const validationBadge = msg.validation_passed
+        ? '<span class="validation-badge passed">校验通过</span>'
+        : '<span class="validation-badge failed">校验未通过</span>';
+      sqlBlock.innerHTML = `${validationBadge}<pre><code>${escapeHtml(msg.sql_query)}</code></pre>`;
+      wrapper.appendChild(sqlBlock);
+    }
+
+    frag.appendChild(wrapper);
   });
   el.chatWindow.appendChild(frag);
   el.chatWindow.scrollTop = el.chatWindow.scrollHeight;
@@ -250,11 +265,12 @@ function escapeHtml(text) {
     .replaceAll('"', "&quot;");
 }
 
-function addChatMessage(role, content) {
+function addChatMessage(role, content, meta = {}) {
   state.chats.push({
     role,
     content,
-    time: Date.now()
+    time: Date.now(),
+    ...meta
   });
 }
 
@@ -429,7 +445,10 @@ function initEvents() {
         })
       });
       state.chatThreadId = result.thread_id || state.chatThreadId;
-      addChatMessage("bot", result.answer || "助手未返回内容。");
+      addChatMessage("bot", result.answer || "助手未返回内容。", {
+        sql_query: result.sql_query || "",
+        validation_passed: result.validation_passed !== false
+      });
       renderChatWindow();
       saveState();
     } catch (error) {

@@ -584,3 +584,50 @@ select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.chat-msg-wrap {
+  margin-bottom: 10px;
+}
+
+.chat-msg-wrap .chat-msg {
+  margin-bottom: 0;
+}
+
+.sql-block {
+  margin-top: 6px;
+  border: 1px solid rgba(134, 247, 255, 0.28);
+  border-radius: 10px;
+  background: rgba(6, 10, 28, 0.92);
+  overflow: hidden;
+}
+
+.sql-block pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+.sql-block code {
+  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+  font-size: 0.88rem;
+  color: #c2fcff;
+  line-height: 1.5;
+}
+
+.validation-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-bottom: 1px solid rgba(168, 181, 255, 0.15);
+  width: 100%;
+}
+
+.validation-badge.passed {
+  background: rgba(56, 172, 124, 0.18);
+  color: #bfffe2;
+}
+
+.validation-badge.failed {
+  background: rgba(255, 125, 168, 0.17);
+  color: #ffd8e8;
+}

@@ -49,7 +49,7 @@ def load_skill(skill_name: str, runtime: ToolRuntime) -> Command:
             "messages": [
                 ToolMessage(
                     content=(
-                        f"未找到技能“{skill_name}”。"
+                        f"未找到技能 {skill_name}。"
                         f"当前生效来源：{mode_text}。"
                         f"可用技能：{available or '无'}"
                     ),
@@ -58,36 +58,3 @@ def load_skill(skill_name: str, runtime: ToolRuntime) -> Command:
             ]
         }
     )
-
-
-@tool
-def write_sql_query(
-    query: str,
-    vertical: str,
-    runtime: ToolRuntime,
-) -> str:
-    """为指定业务域编写并校验 SQL 查询。
-
-    使用本工具前，必须先通过 `load_skill` 加载对应业务域技能，
-    以确保 SQL 依据正确的表结构和业务口径。
-
-    Args:
-        query: 待编写或校验的 SQL 查询语句。
-        vertical: 业务域名称（例如 "sales_analytics"、"inventory_management"）。
-    """
-    skills_loaded = runtime.state.get("skills_loaded", [])
-    if not isinstance(skills_loaded, list):
-        skills_loaded = []
-
-    if vertical not in skills_loaded:
-        return (
-            f"错误：请先加载“{vertical}”技能，再编写该业务域的 SQL。"
-            f"你可以先调用 `load_skill('{vertical}')`。"
-        )
-
-    return (
-        f"{vertical} 业务域 SQL：\n\n"
-        f"```sql\n{query}\n```\n\n"
-        f"已按“{vertical}”技能口径完成校验，可用于后续执行。"
-    )
-
