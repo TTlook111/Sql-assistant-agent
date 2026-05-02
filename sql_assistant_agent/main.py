@@ -62,6 +62,9 @@ def _ensure_user(user_id: str) -> None:
     store.ensure_seed_for_user(user_id)
 
 
+_INTERNAL_PREFIXES = ("[规划]", "[技能加载]", "[校验]")
+
+
 def _extract_assistant_text(result: dict[str, Any]) -> str:
     messages = result.get("messages") or []
     for msg in reversed(messages):
@@ -69,10 +72,15 @@ def _extract_assistant_text(result: dict[str, Any]) -> str:
         if role in {"ai", "assistant"}:
             content = getattr(msg, "content", "")
             if isinstance(content, str):
+                if any(content.startswith(p) for p in _INTERNAL_PREFIXES):
+                    continue
                 return content
             if isinstance(content, list):
                 text_items = [item.get("text", "") for item in content if isinstance(item, dict)]
-                return "\n".join([item for item in text_items if item]).strip()
+                text = "\n".join([item for item in text_items if item]).strip()
+                if any(text.startswith(p) for p in _INTERNAL_PREFIXES):
+                    continue
+                return text
     return "未获取到助手回复。"
 
 

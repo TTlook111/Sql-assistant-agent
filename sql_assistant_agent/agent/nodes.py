@@ -18,14 +18,7 @@ from sql_assistant_agent.runtime.context import get_current_user_id
 from sql_assistant_agent.storage.skill_store import SkillStore
 
 _store = SkillStore()
-_model: ChatTongyi | None = None
-
-
-def _get_model() -> ChatTongyi:
-    global _model
-    if _model is None:
-        _model = ChatTongyi(model="qwen3-max", api_key=DASHSCOPE_API_KEY)
-    return _model
+_model = ChatTongyi(model="qwen3-max", api_key=DASHSCOPE_API_KEY)
 
 
 def _build_skills_summary(user_id: str, user_query: str) -> str:
@@ -81,22 +74,34 @@ def planner_node(state: AgentGraphState) -> dict[str, Any]:
     system_prompt = PLANNER_SYSTEM_PROMPT.format(skills_summary=skills_summary)
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_query)]
 
-    model = _get_model()
+    model = _model
     response = model.invoke(messages)
     response_text = response.content if isinstance(response.content, str) else ""
 
     parsed = _parse_json_from_text(response_text)
     if parsed and "action" in parsed:
+        action = parsed["action"]
+        if action not in ("load_skill", "direct_sql", "reply"):
+            action = "load_skill"
         decision: PlannerDecision = {
-            "action": parsed["action"],
+            "action": action,
             "skill_name": parsed.get("skill_name", ""),
             "reasoning": parsed.get("reasoning", response_text),
+            "reply_text": parsed.get("reply_text", ""),
         }
     else:
         decision = {
-            "action": "load_skill",
+            "action": "reply",
             "skill_name": "",
-            "reasoning": response_text,
+            "reasoning": "无法解析规划结果，直接回复用户。",
+            "reply_text": response_text,
+        }
+
+    if decision["action"] == "reply":
+        reply_text = decision.get("reply_text") or decision["reasoning"]
+        return {
+            "planner_decision": decision,
+            "messages": [AIMessage(content=reply_text)],
         }
 
     return {
@@ -152,7 +157,7 @@ def sql_generator_node(state: AgentGraphState) -> dict[str, Any]:
     system_prompt = SQL_GENERATOR_SYSTEM_PROMPT.format(skill_content=skill_content) + retry_context
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_query)]
 
-    model = _get_model()
+    model = _model
     response = model.invoke(messages)
     response_text = response.content if isinstance(response.content, str) else ""
 
@@ -178,7 +183,7 @@ def validator_node(state: AgentGraphState) -> dict[str, Any]:
     )
     messages = [SystemMessage(content=system_prompt), HumanMessage(content="请校验上述 SQL。")]
 
-    model = _get_model()
+    model = _model
     response = model.invoke(messages)
     response_text = response.content if isinstance(response.content, str) else ""
 
@@ -202,15 +207,18 @@ def validator_node(state: AgentGraphState) -> dict[str, Any]:
         }
 
     return {
-        "validation_passed": True,
-        "validation_feedback": "",
-        "messages": [AIMessage(content="[校验] 校验完成。")],
+        "validation_passed": False,
+        "validation_feedback": "校验结果解析失败，请检查 SQL 语法。",
+        "retry_count": current_retry + 1,
+        "messages": [AIMessage(content="[校验] 校验结果解析失败，建议重新生成 SQL。")],
     }
 
 
 def route_after_planner(state: AgentGraphState) -> str:
     decision = state.get("planner_decision") or {}
     action = decision.get("action", "load_skill")
+    if action == "reply":
+        return "__end__"
     if action == "direct_sql":
         return "sql_generator"
     return "skill_loader"

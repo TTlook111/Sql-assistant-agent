@@ -24,7 +24,7 @@ def build_sql_assistant_agent():
     graph.add_conditional_edges(
         "planner",
         route_after_planner,
-        {"skill_loader": "skill_loader", "sql_generator": "sql_generator"},
+        {"skill_loader": "skill_loader", "sql_generator": "sql_generator", "__end__": END},
     )
     graph.add_edge("skill_loader", "sql_generator")
     graph.add_edge("sql_generator", "validator")

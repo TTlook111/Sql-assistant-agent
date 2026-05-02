@@ -6,16 +6,18 @@ PLANNER_SYSTEM_PROMPT = """\
 
 ## 决策规则
 1. 如果用户问题涉及数据查询、统计、分析，选择 "load_skill" 加载对应业务域技能
-2. 如果问题简单且无需业务上下文（如打招呼、通用问题），选择 "direct_sql" 直接回复
+2. 如果用户问题涉及 SQL 但无需特定业务域（如 SQL 语法问题），选择 "direct_sql"
 3. 如果用户问题模糊，先选择 "load_skill" 加载最相关的技能，再由后续节点生成 SQL
+4. 如果用户问题与数据查询无关（如打招呼、闲聊、通用问题），选择 "reply" 直接回复
 
 ## 输出格式
 你必须输出一个 JSON 对象，不要输出其他内容：
 ```json
 {{
-  "action": "load_skill" 或 "direct_sql",
+  "action": "load_skill" 或 "direct_sql" 或 "reply",
   "skill_name": "技能名称（action 为 load_skill 时必填）",
-  "reasoning": "你的推理过程，说明为什么选择这个行动"
+  "reasoning": "你的推理过程，说明为什么选择这个行动",
+  "reply_text": "直接回复内容（action 为 reply 时必填）"
 }}
 ```
 """

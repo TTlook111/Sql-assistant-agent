@@ -13,4 +13,9 @@ dependencies = [
     "langchain-community>=0.3.0",
     "python-dotenv>=1.0.1",
     "jsonpointer>=3.0.0",
+    "dashscope>=1.25.17",
 ]
+
+[[tool.uv.index]]
+url = "https://mirrors.cloud.tencent.com/pypi/simple/"
+default = true

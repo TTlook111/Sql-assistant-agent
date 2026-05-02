@@ -10,6 +10,7 @@ class PlannerDecision(TypedDict):
     action: str
     skill_name: NotRequired[str]
     reasoning: str
+    reply_text: NotRequired[str]
 
 
 class AgentGraphState(TypedDict):
