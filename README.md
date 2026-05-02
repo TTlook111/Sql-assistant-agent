@@ -12,6 +12,7 @@
 ## 核心特性
 
 - **自定义 ReAct 图**：4 节点 StateGraph（规划 → 技能加载 → SQL 生成 → 校验），推理链路可观察
+- **数据库连接**：支持 MySQL 实时连接，自动内省 Schema（表结构、主外键、索引）并缓存
 - **技能管理**：支持 CRUD、批量删除、`skills.md` 上传自动解析
 - **多用户隔离**：通过 `x-user-id` 请求头实现用户级数据隔离
 - **SQL 自动校验**：生成的 SQL 经 LLM 审查语法、字段引用和业务规则一致性
@@ -24,6 +25,7 @@
 | 后端框架 | FastAPI + Uvicorn |
 | Agent 引擎 | LangGraph StateGraph（自定义 4 节点 ReAct 流程） |
 | LLM | 通义千问 qwen3-max（DashScope） |
+| 数据库 | MySQL（PyMySQL），支持实时 Schema 内省 |
 | 存储 | 文件系统（Markdown 格式） |
 | 前端 | 原生 HTML + CSS + JavaScript |
 
@@ -39,6 +41,9 @@ sql-assistant-agent/
 │  │  ├─ prompts.py              # 各节点提示词模板
 │  │  └─ state.py                # 图状态 schema 定义
 │  ├─ config/config.py           # 环境变量与路径配置
+│  ├─ db/
+│  │  ├─ connection.py           # MySQL 连接管理（DatabaseManager）
+│  │  └─ schema.py              # Schema 内省（表结构、主外键、索引）
 │  ├─ runtime/context.py         # 用户上下文（ContextVar）
 │  ├─ services/markdown_skills.py # Markdown 技能解析与导出
 │  ├─ storage/skill_store.py     # 文件系统技能存储 + 检索
@@ -123,12 +128,46 @@ uv run uvicorn sql_assistant_agent.main:app --reload
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/api/health` | 健康检查 |
+| `POST` | `/api/database/connect` | 连接 MySQL 数据库并加载 Schema |
+| `POST` | `/api/database/disconnect` | 断开数据库连接 |
+| `GET` | `/api/database/status` | 查询数据库连接状态 |
 | `GET` | `/api/skills` | 获取技能列表 |
 | `POST` | `/api/skills` | 新增/更新技能 |
 | `DELETE` | `/api/skills/{skill_id}` | 删除单个技能 |
 | `POST` | `/api/skills/batch-delete` | 批量删除技能 |
 | `POST` | `/api/skills/upload` | 上传 `skills.md` |
 | `POST` | `/api/chat` | 对话问答 |
+
+### 数据库连接
+
+**请求：**
+
+```json
+POST /api/database/connect
+Headers: { "x-user-id": "demo-user" }
+{
+  "host": "127.0.0.1",
+  "port": 3306,
+  "user": "root",
+  "password": "your_password",
+  "database": "your_database"
+}
+```
+
+**响应：**
+
+```json
+{
+  "status": "connected",
+  "database": "your_database",
+  "host": "127.0.0.1",
+  "tables": [
+    { "name": "orders", "comment": "订单表", "columns_count": 12, "row_count": 50000 }
+  ]
+}
+```
+
+连接成功后会自动内省数据库 Schema，供 SQL 生成节点使用。
 
 ### 对话接口
 
@@ -169,6 +208,8 @@ Headers: { "x-user-id": "demo-user" }
 
 ## 说明与约束
 
+- 数据库连接支持 MySQL（通过 PyMySQL），连接信息按用户隔离
+- 连接成功后自动内省 Schema 并缓存，SQL 生成时直接使用缓存的表结构信息
 - 上传文件仅支持 `.md` 格式
 - 存在上传技能时，仅上传技能参与路由；无上传技能时自动回退到内置技能
 - 同一来源文件重复上传会先清理旧技能再导入，避免残留
