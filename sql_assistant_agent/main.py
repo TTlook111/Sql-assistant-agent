@@ -352,6 +352,16 @@ def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, 
     if not sql_query or not sql_query.strip():
         return [], [], ""
 
+    # 清理SQL（移除可能的markdown代码块标记）
+    sql_query = sql_query.strip()
+    if sql_query.startswith("```sql"):
+        sql_query = sql_query[6:]
+    if sql_query.startswith("```"):
+        sql_query = sql_query[3:]
+    if sql_query.endswith("```"):
+        sql_query = sql_query[:-3]
+    sql_query = sql_query.strip()
+
     db_manager = get_db_manager()
     if not db_manager.is_connected(user_id):
         return [], [], "数据库未连接"
@@ -361,7 +371,8 @@ def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, 
         return [], [], "获取数据库连接失败"
 
     try:
-        cursor = conn.cursor()
+        import pymysql.cursors
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(sql_query)
 
         # 获取列名
@@ -372,14 +383,15 @@ def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, 
         data = []
         for row in rows:
             row_dict = {}
-            for i, value in enumerate(row):
+            for col in columns:
+                value = row.get(col)
                 # 处理特殊类型
                 if value is None:
-                    row_dict[columns[i]] = None
+                    row_dict[col] = None
                 elif isinstance(value, (int, float, str, bool)):
-                    row_dict[columns[i]] = value
+                    row_dict[col] = value
                 else:
-                    row_dict[columns[i]] = str(value)
+                    row_dict[col] = str(value)
             data.append(row_dict)
 
         return data, columns, ""

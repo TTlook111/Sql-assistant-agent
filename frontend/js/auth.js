@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { getState, setState, saveAuth, clearAuth, loadState } from './state.js';
-import { loginApi, registerApi, getMeApi, fetchSkillsApi } from './api.js';
+import { loginApi, registerApi, getMeApi, fetchSkillsApi, fetchThreadsApi } from './api.js';
 import { showToast } from './components/toast.js';
 
 // ── DOM References ───────────────────────────────────────────────────────
@@ -102,6 +102,14 @@ export async function onLoginSuccess() {
     setState({ skills: result.items || [] });
   } catch (error) {
     showToast(`加载技能失败：${error.message || '未知错误'}`, 'error');
+  }
+
+  // 加载历史对话列表
+  try {
+    const result = await fetchThreadsApi();
+    setState({ threads: result.items || [] });
+  } catch (error) {
+    // 忽略错误
   }
 
   // 触发登录成功事件
