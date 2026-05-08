@@ -540,3 +540,109 @@
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ── Data Table ───────────────────────────────────────────────────────── */
+.data-result-container {
+  margin-top: var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.data-summary {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.data-table-wrapper {
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.data-table th,
+.data-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.data-table th {
+  background: var(--color-surface);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.data-table td {
+  color: var(--color-text-secondary);
+}
+
+.data-table tr:hover td {
+  background: var(--color-surface-hover);
+}
+
+.data-table td.null-value {
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+.error-block {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-danger-muted);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+/* ── SQL Block (Collapsible) ──────────────────────────────────────────── */
+.sql-block {
+  margin-top: var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.sql-block summary {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-tertiary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+  user-select: none;
+}
+
+.sql-block summary:hover {
+  background: var(--color-surface-hover);
+}
+
+.sql-content {
+  padding: var(--space-3);
+  overflow-x: auto;
+}
+
+.sql-content code {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--color-text-primary);
+  background: none;
+  padding: 0;
+}

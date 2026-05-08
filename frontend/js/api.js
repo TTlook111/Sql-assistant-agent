@@ -185,6 +185,22 @@ export async function fetchThreadMessagesApi(threadId) {
 // ── Database API ─────────────────────────────────────────────────────────
 
 /**
+ * 获取数据库列表
+ * @param {object} config - 服务器配置
+ * @param {string} config.host - 主机地址
+ * @param {number} config.port - 端口
+ * @param {string} config.user - 用户名
+ * @param {string} config.password - 密码
+ * @returns {Promise<{databases: string[]}>}
+ */
+export async function listDatabasesApi(config) {
+  return apiRequest('/database/list', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
+/**
  * 连接数据库
  * @param {object} config - 数据库配置
  * @param {string} config.host - 主机地址

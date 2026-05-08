@@ -23,6 +23,57 @@ function cacheDom() {
   };
 }
 
+// ── Helper Functions ─────────────────────────────────────────────────────
+
+/**
+ * 渲染数据表格
+ * @param {Array} data - 数据数组
+ * @param {Array} columns - 列名数组
+ * @returns {HTMLElement} 表格元素
+ */
+function renderDataTable(data, columns) {
+  if (!data || !data.length || !columns || !columns.length) {
+    return null;
+  }
+
+  const tableWrapper = document.createElement('div');
+  tableWrapper.className = 'data-table-wrapper';
+
+  const table = document.createElement('table');
+  table.className = 'data-table';
+
+  // 表头
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  columns.forEach(col => {
+    const th = document.createElement('th');
+    th.textContent = col;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  // 表体
+  const tbody = document.createElement('tbody');
+  data.forEach(row => {
+    const tr = document.createElement('tr');
+    columns.forEach(col => {
+      const td = document.createElement('td');
+      const value = row[col];
+      td.textContent = value === null ? 'NULL' : String(value);
+      if (value === null) {
+        td.className = 'null-value';
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+
+  tableWrapper.appendChild(table);
+  return tableWrapper;
+}
+
 // ── Render Functions ─────────────────────────────────────────────────────
 
 /**
@@ -41,7 +92,7 @@ export function renderChatWindow() {
       <div class="empty-state">
         <div class="empty-state-icon">💬</div>
         <div class="empty-state-title">开始对话</div>
-        <div class="empty-state-text">输入你的问题，AI助手将帮助你生成SQL查询</div>
+        <div class="empty-state-text">输入你的问题，AI助手将查询数据库并返回结果</div>
       </div>
     `;
     el.chatWindow.innerHTML = welcomeHtml;
@@ -69,24 +120,41 @@ export function renderChatWindow() {
     bubble.textContent = msg.content;
     content.appendChild(bubble);
 
-    // SQL代码块
-    if (msg.sql_query) {
-      const sqlBlock = document.createElement('div');
+    // 数据表格（优先显示）
+    if (msg.data && msg.data.length > 0 && msg.columns && msg.columns.length > 0) {
+      const tableContainer = document.createElement('div');
+      tableContainer.className = 'data-result-container';
+
+      // 结果摘要
+      const summary = document.createElement('div');
+      summary.className = 'data-summary';
+      summary.textContent = `查询结果：${msg.row_count || msg.data.length} 条记录`;
+      tableContainer.appendChild(summary);
+
+      // 渲染表格
+      const table = renderDataTable(msg.data, msg.columns);
+      if (table) {
+        tableContainer.appendChild(table);
+      }
+
+      content.appendChild(tableContainer);
+    }
+    // 如果有错误，显示错误信息
+    else if (msg.execution_error) {
+      const errorBlock = document.createElement('div');
+      errorBlock.className = 'error-block';
+      errorBlock.textContent = `执行错误：${msg.execution_error}`;
+      content.appendChild(errorBlock);
+    }
+    // SQL代码块（折叠显示）
+    else if (msg.sql_query) {
+      const sqlBlock = document.createElement('details');
       sqlBlock.className = 'sql-block';
 
-      const sqlHeader = document.createElement('div');
+      const sqlHeader = document.createElement('summary');
       sqlHeader.className = 'sql-header';
-
-      const sqlTitle = document.createElement('span');
-      sqlTitle.className = 'sql-title';
-      sqlTitle.textContent = 'SQL 查询';
-
-      const sqlStatus = document.createElement('span');
-      sqlStatus.className = `sql-status ${msg.validation_passed ? 'passed' : 'failed'}`;
-      sqlStatus.textContent = msg.validation_passed ? '✓ 校验通过' : '✕ 校验未通过';
-
-      sqlHeader.appendChild(sqlTitle);
-      sqlHeader.appendChild(sqlStatus);
+      sqlHeader.textContent = '查看 SQL 查询';
+      sqlBlock.appendChild(sqlHeader);
 
       const sqlContent = document.createElement('div');
       sqlContent.className = 'sql-content';
@@ -95,7 +163,6 @@ export function renderChatWindow() {
       code.textContent = msg.sql_query;
       sqlContent.appendChild(code);
 
-      sqlBlock.appendChild(sqlHeader);
       sqlBlock.appendChild(sqlContent);
       content.appendChild(sqlBlock);
     }
@@ -202,6 +269,10 @@ export async function loadThread(threadId) {
         content: m.content,
         sql_query: m.sql_query || '',
         validation_passed: true,
+        data: m.data || [],
+        columns: m.columns || [],
+        row_count: m.row_count || 0,
+        execution_error: m.execution_error || '',
         time: Date.now(),
       })),
       historyVisible: false,
@@ -239,6 +310,13 @@ async function handleChatSubmit(e) {
   const text = el.chatInput?.value?.trim();
   if (!text) return;
 
+  // 检查是否已连接数据库
+  const { dbConnected } = getState();
+  if (!dbConnected) {
+    showToast('请先连接数据库', 'warning');
+    return;
+  }
+
   // 添加用户消息
   addChatMessage('user', text);
   renderChatWindow();
@@ -260,10 +338,14 @@ async function handleChatSubmit(e) {
       setState({ chatThreadId: result.thread_id });
     }
 
-    // 添加AI回复
+    // 添加AI回复（包含数据）
     addChatMessage('bot', result.answer || '助手未返回内容。', {
       sql_query: result.sql_query || '',
       validation_passed: result.validation_passed !== false,
+      data: result.data || [],
+      columns: result.columns || [],
+      row_count: result.row_count || 0,
+      execution_error: result.execution_error || '',
     });
 
     renderChatWindow();

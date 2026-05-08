@@ -79,6 +79,10 @@ class ChatResponse(BaseModel):
     answer: str
     sql_query: str = ""
     validation_passed: bool = True
+    data: list[dict[str, Any]] = []
+    columns: list[str] = []
+    row_count: int = 0
+    execution_error: str = ""
 
 
 class DatabaseConnectPayload(BaseModel):
@@ -87,6 +91,13 @@ class DatabaseConnectPayload(BaseModel):
     user: str = Field(min_length=1)
     password: str = ""
     database: str = Field(min_length=1)
+
+
+class DatabaseListPayload(BaseModel):
+    host: str = Field(min_length=1)
+    port: int = Field(default=3306, ge=1, le=65535)
+    user: str = Field(min_length=1)
+    password: str = ""
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -179,6 +190,38 @@ def health() -> dict[str, str]:
 
 
 # ── Database Connection (User's own MySQL) ──────────────────────────────
+
+@app.post("/api/database/list")
+def database_list(
+    payload: DatabaseListPayload,
+    user_id: int = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    """获取MySQL服务器上的数据库列表"""
+    import pymysql
+
+    try:
+        conn = pymysql.connect(
+            host=payload.host.strip(),
+            port=payload.port,
+            user=payload.user.strip(),
+            password=payload.password,
+            charset='utf8mb4',
+            connect_timeout=5,
+        )
+        cursor = conn.cursor()
+        cursor.execute("SHOW DATABASES")
+        databases = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+
+        # 过滤掉系统数据库
+        system_dbs = {'information_schema', 'mysql', 'performance_schema', 'sys'}
+        user_databases = [db for db in databases if db not in system_dbs]
+
+        return {"databases": user_databases}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"获取数据库列表失败: {exc}") from exc
+
 
 @app.post("/api/database/connect")
 def database_connect(
@@ -304,6 +347,48 @@ async def upload_skills(
 
 # ── Chat ────────────────────────────────────────────────────────────────
 
+def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, Any]], list[str], str]:
+    """执行SQL查询并返回结果"""
+    if not sql_query or not sql_query.strip():
+        return [], [], ""
+
+    db_manager = get_db_manager()
+    if not db_manager.is_connected(user_id):
+        return [], [], "数据库未连接"
+
+    conn = db_manager.get_raw_connection(user_id)
+    if not conn:
+        return [], [], "获取数据库连接失败"
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql_query)
+
+        # 获取列名
+        columns = [desc[0] for desc in cursor.description] if cursor.description else []
+
+        # 获取数据
+        rows = cursor.fetchall()
+        data = []
+        for row in rows:
+            row_dict = {}
+            for i, value in enumerate(row):
+                # 处理特殊类型
+                if value is None:
+                    row_dict[columns[i]] = None
+                elif isinstance(value, (int, float, str, bool)):
+                    row_dict[columns[i]] = value
+                else:
+                    row_dict[columns[i]] = str(value)
+            data.append(row_dict)
+
+        return data, columns, ""
+    except Exception as e:
+        return [], [], str(e)
+    finally:
+        conn.close()
+
+
 @app.post("/api/chat")
 def chat(
     payload: ChatPayload,
@@ -321,11 +406,29 @@ def chat(
             )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"对话失败: {exc}") from exc
+
+    sql_query = result.get("sql_query", "")
+    validation_passed = result.get("validation_passed", True)
+
+    # 执行SQL查询
+    data, columns, error = _execute_sql_for_user(user_id, sql_query)
+
+    # 生成回答文本
+    answer = _extract_assistant_text(result)
+    if not error and data:
+        answer = f"查询完成，共返回 {len(data)} 条记录。"
+    elif error:
+        answer = f"查询执行失败：{error}"
+
     return ChatResponse(
         thread_id=client_thread_id,
-        answer=_extract_assistant_text(result),
-        sql_query=result.get("sql_query", ""),
-        validation_passed=result.get("validation_passed", True),
+        answer=answer,
+        sql_query=sql_query,
+        validation_passed=validation_passed,
+        data=data,
+        columns=columns,
+        row_count=len(data),
+        execution_error=error,
     )
 
 
