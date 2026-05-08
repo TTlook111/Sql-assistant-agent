@@ -3,11 +3,11 @@
    Modern AI Application Theme
    ═══════════════════════════════════════════════════════════════════════ */
 
-@import './css/variables.css';
-@import './css/base.css';
-@import './css/layout.css';
-@import './css/components.css';
-@import './css/animations.css';
+@import '/static/css/variables.css';
+@import '/static/css/base.css';
+@import '/static/css/layout.css';
+@import '/static/css/components.css';
+@import '/static/css/animations.css';
 
 /* ── Auth Overlay ─────────────────────────────────────────────────────── */
 .auth-overlay {
