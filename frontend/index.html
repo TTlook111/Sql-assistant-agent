@@ -127,7 +127,14 @@
         <section class="panel chat-panel">
           <div class="section-head">
             <h2>Agent 对话</h2>
-            <span id="chatModeTip" class="chat-mode-tip">路由模式：-</span>
+            <div class="chat-header-actions">
+              <button id="newChatBtn" class="btn ghost" type="button">新对话</button>
+              <button id="toggleHistoryBtn" class="btn ghost" type="button">历史</button>
+              <span id="chatModeTip" class="chat-mode-tip">路由模式：-</span>
+            </div>
+          </div>
+          <div id="threadHistory" class="thread-history" style="display:none">
+            <div id="threadList" class="thread-list"></div>
           </div>
           <div id="chatWindow" class="chat-window"></div>
           <form id="chatForm" class="chat-form">

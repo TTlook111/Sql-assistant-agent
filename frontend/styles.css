@@ -814,3 +814,73 @@ select:focus {
   min-height: 1.2em;
   text-align: center;
 }
+
+/* Thread History */
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thread-history {
+  border: 1px solid rgba(168, 181, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(6, 10, 28, 0.88);
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 0;
+}
+
+.thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+}
+
+.thread-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border: 1px solid transparent;
+}
+
+.thread-item:hover {
+  background: rgba(85, 140, 255, 0.12);
+  border-color: rgba(134, 247, 255, 0.2);
+}
+
+.thread-item.active {
+  background: rgba(85, 140, 255, 0.2);
+  border-color: rgba(134, 247, 255, 0.35);
+}
+
+.thread-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.thread-item-title {
+  font-size: 0.85rem;
+  color: #dbe6ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thread-item-meta {
+  font-size: 0.72rem;
+  color: #7a8bc0;
+  margin-top: 2px;
+}
+
+.thread-item-badge {
+  font-size: 0.72rem;
+  color: #9ba8d6;
+  margin-left: 8px;
+  white-space: nowrap;
+}

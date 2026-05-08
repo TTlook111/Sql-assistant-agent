@@ -13,7 +13,9 @@ const state = {
   chatThreadId: null,
   dbConnected: false,
   token: localStorage.getItem(TOKEN_KEY) || "",
-  username: localStorage.getItem(USERNAME_KEY) || ""
+  username: localStorage.getItem(USERNAME_KEY) || "",
+  threads: [],
+  historyVisible: false
 };
 
 const el = {
@@ -55,7 +57,11 @@ const el = {
   dbDisconnectBtn: document.getElementById("dbDisconnectBtn"),
   dbStatusBadge: document.getElementById("dbStatusBadge"),
   dbTablesPreview: document.getElementById("dbTablesPreview"),
-  dbTablesList: document.getElementById("dbTablesList")
+  dbTablesList: document.getElementById("dbTablesList"),
+  newChatBtn: document.getElementById("newChatBtn"),
+  toggleHistoryBtn: document.getElementById("toggleHistoryBtn"),
+  threadHistory: document.getElementById("threadHistory"),
+  threadList: document.getElementById("threadList")
 };
 
 function getStorageKey() {
@@ -344,6 +350,62 @@ function renderAll() {
   saveState();
 }
 
+// ── Thread History ──────────────────────────────────────────────────────
+
+async function fetchThreads() {
+  try {
+    const result = await apiRequest("/chat/threads");
+    state.threads = result.items || [];
+    renderThreadList();
+  } catch (_err) { /* ignore */ }
+}
+
+function renderThreadList() {
+  el.threadList.innerHTML = "";
+  if (!state.threads.length) {
+    el.threadList.innerHTML = '<p class="empty-state" style="padding:12px;font-size:0.85rem">暂无历史对话。</p>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  state.threads.forEach((t) => {
+    const div = document.createElement("div");
+    div.className = `thread-item${t.thread_id === state.chatThreadId ? " active" : ""}`;
+    const title = t.first_message || "空对话";
+    const count = t.message_count || 0;
+    div.innerHTML = `<div class="thread-item-text"><div class="thread-item-title">${escapeHtml(title)}</div><div class="thread-item-meta">${count} 条消息</div></div><span class="thread-item-badge">›</span>`;
+    div.addEventListener("click", () => loadThread(t.thread_id));
+    frag.appendChild(div);
+  });
+  el.threadList.appendChild(frag);
+}
+
+async function loadThread(threadId) {
+  try {
+    const result = await apiRequest(`/chat/threads/${threadId}`);
+    const messages = result.messages || [];
+    state.chatThreadId = threadId;
+    state.chats = messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      sql_query: m.sql_query || "",
+      validation_passed: true,
+      time: Date.now()
+    }));
+    state.historyVisible = false;
+    el.threadHistory.style.display = "none";
+    renderAll();
+  } catch (err) {
+    showToast(err.message || "加载对话失败", true);
+  }
+}
+
+function startNewChat() {
+  state.chatThreadId = null;
+  state.chats = [];
+  renderChatWindow();
+  saveState();
+}
+
 // ── DB ──────────────────────────────────────────────────────────────────
 
 function renderDbStatus() {
@@ -419,6 +481,15 @@ function initAuthEvents() {
 }
 
 function initEvents() {
+  el.newChatBtn.addEventListener("click", startNewChat);
+  el.toggleHistoryBtn.addEventListener("click", async () => {
+    state.historyVisible = !state.historyVisible;
+    el.threadHistory.style.display = state.historyVisible ? "" : "none";
+    if (state.historyVisible) {
+      await fetchThreads();
+    }
+  });
+
   el.selectFileBtn.addEventListener("click", () => el.fileInput.click());
   el.importBtn.addEventListener("click", () => el.fileInput.click());
   el.fileInput.addEventListener("change", async (e) => { await handleFile(e.target.files?.[0]); e.target.value = ""; });

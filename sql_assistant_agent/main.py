@@ -328,6 +328,104 @@ def chat(
     )
 
 
+# ── Chat History ────────────────────────────────────────────────────────
+
+_INTERNAL_PREFIXES_TUPLE = ("[规划]", "[技能加载]", "[校验]", "[Schema]")
+
+
+def _is_internal_message(msg: Any) -> bool:
+    content = getattr(msg, "content", "")
+    if isinstance(content, str):
+        return any(content.startswith(p) for p in _INTERNAL_PREFIXES_TUPLE)
+    return False
+
+
+@app.get("/api/chat/threads")
+def list_threads(user_id: int = Depends(get_current_user_id)) -> dict[str, Any]:
+    agent = get_agent()
+    checkpointer = agent.checkpointer
+    prefix = f"{user_id}:"
+
+    threads: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for checkpoint_tuple in checkpointer.list(None):
+        thread_id = checkpoint_tuple.config.get("configurable", {}).get("thread_id", "")
+        if not thread_id.startswith(prefix):
+            continue
+        client_tid = thread_id[len(prefix):]
+        if client_tid in seen:
+            continue
+        seen.add(client_tid)
+
+        cv = checkpoint_tuple.checkpoint.get("channel_values", {})
+        messages = cv.get("messages", [])
+        user_messages = [m for m in messages if getattr(m, "type", "") == "human"]
+        first_msg = user_messages[0].content if user_messages else ""
+        if isinstance(first_msg, list):
+            first_msg = " ".join(
+                item.get("text", "") for item in first_msg if isinstance(item, dict)
+            )
+
+        ts = checkpoint_tuple.checkpoint.get("ts", "")
+        threads.append({
+            "thread_id": client_tid,
+            "first_message": first_msg[:100] if isinstance(first_msg, str) else "",
+            "message_count": len(messages),
+            "created_at": ts,
+        })
+
+    threads.sort(key=lambda t: t.get("created_at", ""), reverse=True)
+    return {"items": threads}
+
+
+@app.get("/api/chat/threads/{thread_id}")
+def get_thread_messages(
+    thread_id: str,
+    user_id: int = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    agent = get_agent()
+    checkpointer = agent.checkpointer
+    checkpoint_thread_id = f"{user_id}:{thread_id}"
+    config = {"configurable": {"thread_id": checkpoint_thread_id}}
+
+    checkpoint_tuple = checkpointer.get_tuple(config)
+    if not checkpoint_tuple:
+        raise HTTPException(status_code=404, detail="对话不存在。")
+
+    cv = checkpoint_tuple.checkpoint.get("channel_values", {})
+    messages = cv.get("messages", [])
+
+    result: list[dict[str, str]] = []
+    for msg in messages:
+        role = getattr(msg, "type", "")
+        content = getattr(msg, "content", "")
+        if _is_internal_message(msg):
+            continue
+        if role == "human":
+            text = content if isinstance(content, str) else ""
+            if isinstance(content, list):
+                text = " ".join(
+                    item.get("text", "") for item in content if isinstance(item, dict)
+                )
+            result.append({"role": "user", "content": text})
+        elif role == "ai":
+            text = content if isinstance(content, str) else ""
+            if isinstance(content, list):
+                text = " ".join(
+                    item.get("text", "") for item in content if isinstance(item, dict)
+                )
+            sql = ""
+            if "```sql" in text:
+                import re
+                m = re.search(r"```sql\s*\n?([\s\S]*?)\n?\s*```", text)
+                if m:
+                    sql = m.group(1).strip()
+            result.append({"role": "bot", "content": text, "sql_query": sql})
+
+    return {"thread_id": thread_id, "messages": result}
+
+
 # ── Frontend Static Files ───────────────────────────────────────────────
 
 @app.get("/")
