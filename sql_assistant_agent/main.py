@@ -2,25 +2,59 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-import re
-from typing import Annotated, Any
+from typing import Any
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from sql_assistant_agent.agent.builder import build_sql_assistant_agent
+from sql_assistant_agent.auth.deps import get_current_user_id
+from sql_assistant_agent.auth.jwt import (
+    create_access_token,
+    hash_password,
+    verify_password,
+)
 from sql_assistant_agent.config.config import PROJECT_ROOT, SKILL_FILES_DIR
 from sql_assistant_agent.db.connection import DatabaseConfig, get_db_manager
-from sql_assistant_agent.db.schema import get_tables_summary, introspect_schema, format_schema_markdown
+from sql_assistant_agent.db.init_db import get_db, get_db_session
+from sql_assistant_agent.db.models import User
+from sql_assistant_agent.db.schema import (
+    format_schema_markdown,
+    get_tables_summary,
+    introspect_schema,
+)
 from sql_assistant_agent.runtime.context import user_context
-from sql_assistant_agent.storage.skill_store import SkillStore
+from sql_assistant_agent.storage.mysql_skill_store import MySQLSkillStore
 
-app = FastAPI(title="SQL Assistant Agent API", version="0.1.0")
-store = SkillStore()
+app = FastAPI(title="SQL Assistant Agent API", version="0.2.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+skill_store = MySQLSkillStore()
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 SKILL_FILES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ── Payload / Response Models ───────────────────────────────────────────
+
+class RegisterPayload(BaseModel):
+    username: str = Field(min_length=2, max_length=64)
+    password: str = Field(min_length=4, max_length=128)
+
+
+class LoginPayload(BaseModel):
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
 
 
 class SkillCreatePayload(BaseModel):
@@ -46,22 +80,19 @@ class ChatResponse(BaseModel):
     validation_passed: bool = True
 
 
-def get_user_id(x_user_id: Annotated[str | None, Header()] = None) -> str:
-    user_id = (x_user_id or "").strip() or "demo-user"
-    if len(user_id) > 64:
-        raise HTTPException(status_code=400, detail="x-user-id 长度不能超过 64")
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", user_id):
-        raise HTTPException(status_code=400, detail="x-user-id 仅支持字母、数字、下划线和短横线")
-    return user_id
+class DatabaseConnectPayload(BaseModel):
+    host: str = Field(min_length=1)
+    port: int = Field(default=3306, ge=1, le=65535)
+    user: str = Field(min_length=1)
+    password: str = ""
+    database: str = Field(min_length=1)
 
+
+# ── Helpers ─────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=1)
 def get_agent():
     return build_sql_assistant_agent()
-
-
-def _ensure_user(user_id: str) -> None:
-    store.ensure_seed_for_user(user_id)
 
 
 _INTERNAL_PREFIXES = ("[规划]", "[技能加载]", "[校验]", "[Schema]")
@@ -92,39 +123,66 @@ def _safe_upload_filename(filename: str) -> str:
     return safe[:120] or "skills.md"
 
 
-def _unlink_source_file(user_id: str, path_value: str) -> None:
-    if not path_value:
-        return
-    uploads_dir = (SKILL_FILES_DIR / "users" / user_id / "uploads").resolve()
-    try:
-        target = Path(path_value).resolve()
-    except OSError:
-        return
-    if target == uploads_dir or uploads_dir not in target.parents:
-        return
-    try:
-        target.unlink(missing_ok=True)
-    except OSError:
-        return
+# ── Auth Endpoints ──────────────────────────────────────────────────────
+
+@app.post("/api/auth/register")
+def register(payload: RegisterPayload) -> dict[str, Any]:
+    with get_db_session() as db:
+        existing = db.execute(
+            select(User).where(User.username == payload.username.strip())
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail="用户名已存在。")
+        user = User(
+            username=payload.username.strip(),
+            password_hash=hash_password(payload.password),
+        )
+        db.add(user)
+        db.flush()
+        user_id = user.id
+        username = user.username
+
+    token = create_access_token(user_id, username)
+    return {"token": token, "user_id": user_id, "username": username}
 
 
-class DatabaseConnectPayload(BaseModel):
-    host: str = Field(min_length=1)
-    port: int = Field(default=3306, ge=1, le=65535)
-    user: str = Field(min_length=1)
-    password: str = ""
-    database: str = Field(min_length=1)
+@app.post("/api/auth/login")
+def login(payload: LoginPayload) -> dict[str, Any]:
+    with get_db_session() as db:
+        user = db.execute(
+            select(User).where(User.username == payload.username.strip())
+        ).scalar_one_or_none()
+        if not user or not verify_password(payload.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="用户名或密码错误。")
+        user_id = user.id
+        username = user.username
 
+    token = create_access_token(user_id, username)
+    return {"token": token, "user_id": user_id, "username": username}
+
+
+@app.get("/api/auth/me")
+def get_me(user_id: int = Depends(get_current_user_id)) -> dict[str, Any]:
+    with get_db_session() as db:
+        user = db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="用户不存在。")
+        return {"user_id": user.id, "username": user.username}
+
+
+# ── Health ──────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+# ── Database Connection (User's own MySQL) ──────────────────────────────
+
 @app.post("/api/database/connect")
 def database_connect(
     payload: DatabaseConnectPayload,
-    user_id: str = Depends(get_user_id),
+    user_id: int = Depends(get_current_user_id),
 ) -> dict[str, Any]:
     db_manager = get_db_manager()
     config = DatabaseConfig(
@@ -154,82 +212,75 @@ def database_connect(
 
 
 @app.post("/api/database/disconnect")
-def database_disconnect(user_id: str = Depends(get_user_id)) -> dict[str, Any]:
+def database_disconnect(user_id: int = Depends(get_current_user_id)) -> dict[str, Any]:
     db_manager = get_db_manager()
     disconnected = db_manager.disconnect(user_id)
     return {"disconnected": disconnected}
 
 
 @app.get("/api/database/status")
-def database_status(user_id: str = Depends(get_user_id)) -> dict[str, Any]:
+def database_status(user_id: int = Depends(get_current_user_id)) -> dict[str, Any]:
     db_manager = get_db_manager()
     return db_manager.get_status(user_id)
 
 
+# ── Skills ──────────────────────────────────────────────────────────────
+
 @app.get("/api/skills")
-def list_skills(user_id: str = Depends(get_user_id)) -> dict[str, Any]:
-    _ensure_user(user_id)
-    return {"items": store.list_skills(user_id)}
+def list_skills(user_id: int = Depends(get_current_user_id)) -> dict[str, Any]:
+    with get_db_session() as db:
+        return {"items": skill_store.list_skills(db, user_id)}
 
 
 @app.post("/api/skills")
-def create_skill(payload: SkillCreatePayload, user_id: str = Depends(get_user_id)) -> dict[str, Any]:
-    _ensure_user(user_id)
-    item = store.upsert_skill(
-        user_id,
-        name=payload.name.strip(),
-        description=payload.description.strip(),
-        tags=[tag.strip() for tag in payload.tags if tag.strip()],
-        content=payload.content.strip(),
-    )
-    return {"item": item}
+def create_skill(
+    payload: SkillCreatePayload,
+    user_id: int = Depends(get_current_user_id),
+) -> dict[str, Any]:
+    with get_db_session() as db:
+        item = skill_store.upsert_skill(
+            db,
+            user_id,
+            name=payload.name.strip(),
+            description=payload.description.strip(),
+            tags=[tag.strip() for tag in payload.tags if tag.strip()],
+            content=payload.content.strip(),
+        )
+        return {"item": item}
 
 
 @app.delete("/api/skills/{skill_id}")
-def delete_skill(skill_id: str, user_id: str = Depends(get_user_id)) -> dict[str, bool]:
-    _ensure_user(user_id)
-    current = store.get_skill_by_id(user_id, skill_id)
-    if not current:
-        raise HTTPException(status_code=404, detail="技能不存在")
-    source_file = (current.get("source_file") or "").strip()
-    if source_file:
-        store.delete_skills_by_source_file(user_id, source_file)
-        _unlink_source_file(user_id, source_file)
-    else:
-        store.delete_skill(user_id, skill_id)
+def delete_skill(
+    skill_id: str,
+    user_id: int = Depends(get_current_user_id),
+) -> dict[str, bool]:
+    with get_db_session() as db:
+        current = skill_store.get_skill_by_id(db, user_id, skill_id)
+        if not current:
+            raise HTTPException(status_code=404, detail="技能不存在")
+        source_file = (current.get("source_file") or "").strip()
+        if source_file:
+            skill_store.delete_skills_by_source_file(db, user_id, source_file)
+        else:
+            skill_store.delete_skill(db, user_id, skill_id)
     return {"ok": True}
 
 
 @app.post("/api/skills/batch-delete")
-def delete_skills(payload: BatchDeletePayload, user_id: str = Depends(get_user_id)) -> dict[str, int]:
-    _ensure_user(user_id)
-    source_files: set[str] = set()
-    plain_skill_ids: list[str] = []
-    for skill_id in payload.ids:
-        current = store.get_skill_by_id(user_id, skill_id)
-        if not current:
-            continue
-        source_file = (current.get("source_file") or "").strip()
-        if source_file:
-            source_files.add(source_file)
-        else:
-            plain_skill_ids.append(skill_id)
-
-    deleted_count = 0
-    if plain_skill_ids:
-        deleted_count += store.delete_skills(user_id, plain_skill_ids)
-    for source_file in source_files:
-        deleted_count += store.delete_skills_by_source_file(user_id, source_file)
-        _unlink_source_file(user_id, source_file)
+def delete_skills(
+    payload: BatchDeletePayload,
+    user_id: int = Depends(get_current_user_id),
+) -> dict[str, int]:
+    with get_db_session() as db:
+        deleted_count = skill_store.delete_skills(db, user_id, payload.ids)
     return {"deleted_count": deleted_count}
 
 
 @app.post("/api/skills/upload")
 async def upload_skills(
-    user_id: str = Depends(get_user_id),
+    user_id: int = Depends(get_current_user_id),
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
-    _ensure_user(user_id)
     if not file.filename or not file.filename.lower().endswith(".md"):
         raise HTTPException(status_code=400, detail="仅支持上传 .md 文件")
     content_bytes = await file.read()
@@ -239,29 +290,35 @@ async def upload_skills(
         raise HTTPException(status_code=400, detail="文件内容为空")
 
     safe_name = _safe_upload_filename(file.filename)
-    saved_file = store.save_uploaded_markdown(user_id, safe_name, content)
+    saved_file = skill_store.save_uploaded_markdown(user_id, safe_name, content)
     source = str(saved_file)
-    imported_count = store.import_skills_from_markdown(user_id, content, source)
+    with get_db_session() as db:
+        imported_count = skill_store.import_skills_from_markdown(db, user_id, content, source)
     if imported_count <= 0:
-        _unlink_source_file(user_id, source)
         raise HTTPException(status_code=400, detail="未在文档中识别到可导入的技能段")
-    return {"imported_count": imported_count, "items": store.list_skills(user_id)}
+    with get_db_session() as db:
+        items = skill_store.list_skills(db, user_id)
+    return {"imported_count": imported_count, "items": items}
 
+
+# ── Chat ────────────────────────────────────────────────────────────────
 
 @app.post("/api/chat")
-def chat(payload: ChatPayload, user_id: str = Depends(get_user_id)) -> ChatResponse:
-    _ensure_user(user_id)
+def chat(
+    payload: ChatPayload,
+    user_id: int = Depends(get_current_user_id),
+) -> ChatResponse:
     agent = get_agent()
     client_thread_id = payload.thread_id or str(uuid4())
     checkpoint_thread_id = f"{user_id}:{client_thread_id}"
-    config = {"configurable": {"thread_id": checkpoint_thread_id, "user_id": user_id}}
-    with user_context(user_id):
+    config = {"configurable": {"thread_id": checkpoint_thread_id, "user_id": str(user_id)}}
+    with user_context(str(user_id)):
         try:
             result = agent.invoke(
                 {"messages": [{"role": "user", "content": payload.message}]},
                 config,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise HTTPException(status_code=500, detail=f"对话失败: {exc}") from exc
     return ChatResponse(
         thread_id=client_thread_id,
@@ -270,6 +327,8 @@ def chat(payload: ChatPayload, user_id: str = Depends(get_user_id)) -> ChatRespo
         validation_passed=result.get("validation_passed", True),
     )
 
+
+# ── Frontend Static Files ───────────────────────────────────────────────
 
 @app.get("/")
 def frontend_index() -> FileResponse:

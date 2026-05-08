@@ -2,25 +2,31 @@
 
 const STORAGE_KEY = "skill_studio_data_v1";
 const API_BASE = "/api";
-const USER_ID_KEY = "skill_studio_user_id";
-
-function resolveUserId() {
-  const fromQuery = new URLSearchParams(window.location.search).get("user_id");
-  const raw = (fromQuery || localStorage.getItem(USER_ID_KEY) || "demo-user").trim();
-  return raw.slice(0, 64) || "demo-user";
-}
+const TOKEN_KEY = "skill_studio_token";
+const USERNAME_KEY = "skill_studio_username";
 
 const state = {
   skills: [],
   selectedIds: new Set(),
   searchKeyword: "",
   chats: [],
-  userId: resolveUserId(),
   chatThreadId: null,
-  dbConnected: false
+  dbConnected: false,
+  token: localStorage.getItem(TOKEN_KEY) || "",
+  username: localStorage.getItem(USERNAME_KEY) || ""
 };
 
 const el = {
+  authOverlay: document.getElementById("authOverlay"),
+  appShell: document.getElementById("appShell"),
+  authForm: document.getElementById("authForm"),
+  authUsername: document.getElementById("authUsername"),
+  authPassword: document.getElementById("authPassword"),
+  loginBtn: document.getElementById("loginBtn"),
+  registerBtn: document.getElementById("registerBtn"),
+  authError: document.getElementById("authError"),
+  currentUser: document.getElementById("currentUser"),
+  logoutBtn: document.getElementById("logoutBtn"),
   dropZone: document.getElementById("dropZone"),
   fileInput: document.getElementById("fileInput"),
   selectFileBtn: document.getElementById("selectFileBtn"),
@@ -53,11 +59,15 @@ const el = {
 };
 
 function getStorageKey() {
-  return `${STORAGE_KEY}:${state.userId}`;
+  return `${STORAGE_KEY}:${state.username || "guest"}`;
 }
 
 function getHeaders() {
-  return { "x-user-id": state.userId };
+  const h = {};
+  if (state.token) {
+    h["Authorization"] = `Bearer ${state.token}`;
+  }
+  return h;
 }
 
 async function apiRequest(path, options = {}) {
@@ -68,25 +78,103 @@ async function apiRequest(path, options = {}) {
       ...getHeaders()
     }
   });
+  if (response.status === 401) {
+    handleLogout();
+    throw new Error("登录已过期，请重新登录。");
+  }
   if (!response.ok) {
     let message = `请求失败: ${response.status}`;
     try {
       const body = await response.json();
       message = body.detail || message;
     } catch (_err) {
-      // ignore json parse error
+      // ignore
     }
     throw new Error(message);
   }
-  if (response.status === 204) {
-    return null;
-  }
-  const contentType = response.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    return response.json();
-  }
+  if (response.status === 204) return null;
+  const ct = response.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return response.json();
   return response.text();
 }
+
+// ── Auth ────────────────────────────────────────────────────────────────
+
+function showApp() {
+  el.authOverlay.classList.add("hidden");
+  el.appShell.style.display = "";
+  if (el.currentUser) el.currentUser.textContent = state.username;
+}
+
+function showAuth() {
+  el.authOverlay.classList.remove("hidden");
+  el.appShell.style.display = "none";
+}
+
+async function handleLogin(username, password) {
+  el.authError.textContent = "";
+  try {
+    const result = await apiRequest("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    state.token = result.token;
+    state.username = result.username || username;
+    localStorage.setItem(TOKEN_KEY, state.token);
+    localStorage.setItem(USERNAME_KEY, state.username);
+    await onLoginSuccess();
+  } catch (error) {
+    el.authError.textContent = error.message || "登录失败";
+  }
+}
+
+async function handleRegister(username, password) {
+  el.authError.textContent = "";
+  try {
+    const result = await apiRequest("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    state.token = result.token;
+    state.username = result.username || username;
+    localStorage.setItem(TOKEN_KEY, state.token);
+    localStorage.setItem(USERNAME_KEY, state.username);
+    await onLoginSuccess();
+  } catch (error) {
+    el.authError.textContent = error.message || "注册失败";
+  }
+}
+
+function handleLogout() {
+  state.token = "";
+  state.username = "";
+  state.skills = [];
+  state.chats = [];
+  state.chatThreadId = null;
+  state.dbConnected = false;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USERNAME_KEY);
+  showAuth();
+}
+
+async function onLoginSuccess() {
+  showApp();
+  loadState();
+  if (el.uploadHint) {
+    el.uploadHint.textContent = `当前用户：${state.username}（支持 Markdown 文件上传）`;
+  }
+  try {
+    await fetchSkills();
+  } catch (error) {
+    showToast(`加载技能失败：${error.message || "未知错误"}`, true);
+  }
+  renderAll();
+  fetchDbStatus();
+}
+
+// ── Skills / UI ─────────────────────────────────────────────────────────
 
 async function fetchSkills() {
   const result = await apiRequest("/skills");
@@ -95,75 +183,50 @@ async function fetchSkills() {
 }
 
 function saveState() {
-  const data = {
-    chats: state.chats,
-    chatThreadId: state.chatThreadId
-  };
+  const data = { chats: state.chats, chatThreadId: state.chatThreadId };
   localStorage.setItem(getStorageKey(), JSON.stringify(data));
-  localStorage.setItem(USER_ID_KEY, state.userId);
 }
 
 function loadState() {
   try {
     const raw = localStorage.getItem(getStorageKey());
-    if (!raw) {
-      return;
-    }
+    if (!raw) return;
     const data = JSON.parse(raw);
     state.chats = Array.isArray(data.chats) ? data.chats : [];
     state.chatThreadId = data.chatThreadId || null;
   } catch (error) {
     console.error(error);
-    showToast("读取本地数据失败，已使用空数据初始化。", true);
   }
 }
 
 function hasUploadedSkills() {
-  return state.skills.some((skill) => Boolean((skill.source_file || "").trim()));
+  return state.skills.some((s) => Boolean((s.source_file || "").trim()));
 }
 
 function getEffectiveMode() {
-  if (!state.skills.length) {
-    return "none";
-  }
+  if (!state.skills.length) return "none";
   return hasUploadedSkills() ? "uploaded" : "builtin_fallback";
 }
 
 function getModeLabel() {
   const mode = getEffectiveMode();
-  if (mode === "uploaded") {
-    return "上传优先生效";
-  }
-  if (mode === "builtin_fallback") {
-    return "内置回退";
-  }
+  if (mode === "uploaded") return "上传优先生效";
+  if (mode === "builtin_fallback") return "内置回退";
   return "无技能上下文";
 }
 
 function isSkillEffective(skill) {
   const uploaded = Boolean((skill.source_file || "").trim());
-  const mode = getEffectiveMode();
-  if (mode === "uploaded") {
-    return uploaded;
-  }
-  return true;
+  return getEffectiveMode() !== "uploaded" || uploaded;
 }
 
 function renderStatusStrip() {
-  const uploadedCount = state.skills.filter((item) => Boolean((item.source_file || "").trim())).length;
+  const uploadedCount = state.skills.filter((s) => Boolean((s.source_file || "").trim())).length;
   const modeText = getModeLabel();
-  if (el.userBadge) {
-    el.userBadge.textContent = `用户：${state.userId}`;
-  }
-  if (el.modeBadge) {
-    el.modeBadge.textContent = `生效模式：${modeText}`;
-  }
-  if (el.countBadge) {
-    el.countBadge.textContent = `技能数：${state.skills.length}（上传 ${uploadedCount}）`;
-  }
-  if (el.chatModeTip) {
-    el.chatModeTip.textContent = `路由模式：${modeText}`;
-  }
+  if (el.userBadge) el.userBadge.textContent = `用户：${state.username}`;
+  if (el.modeBadge) el.modeBadge.textContent = `生效模式：${modeText}`;
+  if (el.countBadge) el.countBadge.textContent = `技能数：${state.skills.length}（上传 ${uploadedCount}）`;
+  if (el.chatModeTip) el.chatModeTip.textContent = `路由模式：${modeText}`;
 }
 
 function showToast(text, isError = false) {
@@ -171,23 +234,15 @@ function showToast(text, isError = false) {
   el.toast.style.borderColor = isError ? "rgba(255, 107, 157, 0.7)" : "rgba(168, 181, 255, 0.3)";
   el.toast.classList.add("show");
   window.clearTimeout(showToast._timer);
-  showToast._timer = window.setTimeout(() => {
-    el.toast.classList.remove("show");
-  }, 2200);
+  showToast._timer = window.setTimeout(() => el.toast.classList.remove("show"), 2200);
 }
 
 function getFilteredSkills() {
   const keyword = state.searchKeyword.trim().toLowerCase();
-  if (!keyword) {
-    return state.skills;
-  }
-  return state.skills.filter((skill) => {
-    const targets = [
-      skill.name.toLowerCase(),
-      skill.description.toLowerCase(),
-      (skill.tags || []).join(",").toLowerCase()
-    ];
-    return targets.some((item) => item.includes(keyword));
+  if (!keyword) return state.skills;
+  return state.skills.filter((s) => {
+    const targets = [s.name.toLowerCase(), s.description.toLowerCase(), (s.tags || []).join(",").toLowerCase()];
+    return targets.some((t) => t.includes(keyword));
   });
 }
 
@@ -195,10 +250,8 @@ function renderSkillList() {
   const skills = getFilteredSkills();
   el.skillList.innerHTML = "";
   el.emptyState.style.display = skills.length ? "none" : "block";
-  el.selectAllCheckbox.checked = skills.length > 0 && skills.every((skill) => state.selectedIds.has(skill.id));
-  if (!skills.length) {
-    return;
-  }
+  el.selectAllCheckbox.checked = skills.length > 0 && skills.every((s) => state.selectedIds.has(s.id));
+  if (!skills.length) return;
 
   const frag = document.createDocumentFragment();
   skills.forEach((skill) => {
@@ -219,9 +272,8 @@ function renderSkillList() {
       <p>${escapeHtml(skill.description)}</p>
       <div class="skill-meta">
         <span class="source-chip ${sourceType === "builtin" ? "builtin" : ""}">${sourceText}</span>
-        ${(skill.tags || []).map((tag) => `<span class="chip">#${escapeHtml(tag)}</span>`).join("")}
-      </div>
-    `;
+        ${(skill.tags || []).map((t) => `<span class="chip">#${escapeHtml(t)}</span>`).join("")}
+      </div>`;
     frag.appendChild(item);
   });
   el.skillList.appendChild(frag);
@@ -231,15 +283,11 @@ function renderChatWindow() {
   el.chatWindow.innerHTML = "";
   if (!state.chats.length) {
     const mode = getEffectiveMode();
-    let initialText = "你可以直接提问，Agent 将基于当前上下文自动作答。";
-    if (mode === "uploaded") {
-      initialText = "你可以直接提问，Agent 将在“上传技能”范围内自动路由并作答。";
-    } else if (mode === "builtin_fallback") {
-      initialText = "你可以直接提问，当前使用“内置技能回退”模式自动路由并作答。";
-    } else if (mode === "none") {
-      initialText = "你可以直接提问；当前未检索到技能，Agent 将在无技能上下文下作答。";
-    }
-    el.chatWindow.innerHTML = `<p class="chat-msg bot">${initialText}</p>`;
+    let txt = "你可以直接提问，Agent 将基于当前上下文自动作答。";
+    if (mode === "uploaded") txt = "你可以直接提问，Agent 将在\"上传技能\"范围内自动路由并作答。";
+    else if (mode === "builtin_fallback") txt = "你可以直接提问，当前使用\"内置技能回退\"模式自动路由并作答。";
+    else if (mode === "none") txt = "你可以直接提问；当前未检索到技能，Agent 将在无技能上下文下作答。";
+    el.chatWindow.innerHTML = `<p class="chat-msg bot">${txt}</p>`;
     return;
   }
 
@@ -247,22 +295,19 @@ function renderChatWindow() {
   state.chats.forEach((msg) => {
     const wrapper = document.createElement("div");
     wrapper.className = `chat-msg-wrap ${msg.role}`;
-
     const p = document.createElement("p");
     p.className = `chat-msg ${msg.role}`;
     p.textContent = msg.content;
     wrapper.appendChild(p);
-
     if (msg.sql_query) {
       const sqlBlock = document.createElement("div");
       sqlBlock.className = "sql-block";
-      const validationBadge = msg.validation_passed
+      const badge = msg.validation_passed
         ? '<span class="validation-badge passed">校验通过</span>'
         : '<span class="validation-badge failed">校验未通过</span>';
-      sqlBlock.innerHTML = `${validationBadge}<pre><code>${escapeHtml(msg.sql_query)}</code></pre>`;
+      sqlBlock.innerHTML = `${badge}<pre><code>${escapeHtml(msg.sql_query)}</code></pre>`;
       wrapper.appendChild(sqlBlock);
     }
-
     frag.appendChild(wrapper);
   });
   el.chatWindow.appendChild(frag);
@@ -270,37 +315,20 @@ function renderChatWindow() {
 }
 
 function escapeHtml(text) {
-  return String(text ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+  return String(text ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
 function addChatMessage(role, content, meta = {}) {
-  state.chats.push({
-    role,
-    content,
-    time: Date.now(),
-    ...meta
-  });
+  state.chats.push({ role, content, time: Date.now(), ...meta });
 }
 
 async function handleFile(file) {
-  if (!file) {
-    return;
-  }
-  if (!/\.md$/i.test(file.name)) {
-    showToast("仅支持上传 .md 文件。", true);
-    return;
-  }
+  if (!file) return;
+  if (!/\.md$/i.test(file.name)) { showToast("仅支持上传 .md 文件。", true); return; }
   const formData = new FormData();
   formData.append("file", file);
   try {
-    const result = await apiRequest("/skills/upload", {
-      method: "POST",
-      body: formData
-    });
+    const result = await apiRequest("/skills/upload", { method: "POST", body: formData });
     state.skills = result.items || [];
     renderAll();
     showToast(`导入成功：${result.imported_count || 0} 条技能`);
@@ -316,160 +344,7 @@ function renderAll() {
   saveState();
 }
 
-function initEvents() {
-  el.selectFileBtn.addEventListener("click", () => el.fileInput.click());
-  el.importBtn.addEventListener("click", () => el.fileInput.click());
-  el.fileInput.addEventListener("change", async (event) => {
-    await handleFile(event.target.files?.[0]);
-    event.target.value = "";
-  });
-
-  ["dragenter", "dragover"].forEach((eventName) => {
-    el.dropZone.addEventListener(eventName, (event) => {
-      event.preventDefault();
-      el.dropZone.classList.add("drag-over");
-    });
-  });
-  ["dragleave", "drop"].forEach((eventName) => {
-    el.dropZone.addEventListener(eventName, () => {
-      el.dropZone.classList.remove("drag-over");
-    });
-  });
-  el.dropZone.addEventListener("drop", async (event) => {
-    event.preventDefault();
-    await handleFile(event.dataTransfer?.files?.[0]);
-  });
-  el.dropZone.addEventListener("click", () => el.fileInput.click());
-  el.dropZone.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      el.fileInput.click();
-    }
-  });
-
-  el.searchInput.addEventListener("input", (event) => {
-    state.searchKeyword = event.target.value || "";
-    renderSkillList();
-  });
-
-  el.skillList.addEventListener("click", async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-    const id = target.dataset.id;
-    if (!id) {
-      return;
-    }
-    if (target.classList.contains("delete-btn")) {
-      const current = state.skills.find((item) => item.id === id);
-      const sourceFile = (current?.source_file || "").trim();
-      const confirmText = sourceFile
-        ? "该技能来自上传文件，删除后会同步删除同一文件导入的全部技能，确认继续吗？"
-        : "确认删除该技能吗？";
-      if (!window.confirm(confirmText)) {
-        return;
-      }
-      try {
-        await apiRequest(`/skills/${id}`, { method: "DELETE" });
-        state.selectedIds.delete(id);
-        await fetchSkills();
-        showToast("技能已删除");
-        renderAll();
-      } catch (error) {
-        showToast(error.message || "删除失败", true);
-      }
-    }
-  });
-
-  el.skillList.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement) || !target.classList.contains("skill-checkbox")) {
-      return;
-    }
-    const id = target.dataset.id;
-    if (!id) {
-      return;
-    }
-    if (target.checked) {
-      state.selectedIds.add(id);
-    } else {
-      state.selectedIds.delete(id);
-    }
-    const allIds = getFilteredSkills().map((s) => s.id);
-    el.selectAllCheckbox.checked = allIds.length > 0 && allIds.every((nextId) => state.selectedIds.has(nextId));
-  });
-
-  el.selectAllCheckbox.addEventListener("change", (event) => {
-    const checked = event.target.checked;
-    const filtered = getFilteredSkills();
-    filtered.forEach((item) => {
-      if (checked) {
-        state.selectedIds.add(item.id);
-      } else {
-        state.selectedIds.delete(item.id);
-      }
-    });
-    renderSkillList();
-  });
-
-  el.batchDeleteBtn.addEventListener("click", async () => {
-    if (!state.selectedIds.size) {
-      showToast("请先选中要删除的技能。", true);
-      return;
-    }
-    if (!window.confirm(`确认删除已选中的 ${state.selectedIds.size} 项技能吗？`)) {
-      return;
-    }
-    const selected = Array.from(state.selectedIds);
-    try {
-      await apiRequest("/skills/batch-delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: selected })
-      });
-      state.selectedIds = new Set();
-      el.selectAllCheckbox.checked = false;
-      await fetchSkills();
-      showToast("批量删除完成");
-      renderAll();
-    } catch (error) {
-      showToast(error.message || "批量删除失败", true);
-    }
-  });
-
-  el.chatForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const text = el.chatInput.value.trim();
-    if (!text) {
-      return;
-    }
-    addChatMessage("user", text);
-    renderChatWindow();
-    el.chatInput.value = "";
-    try {
-      const result = await apiRequest("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          thread_id: state.chatThreadId
-        })
-      });
-      state.chatThreadId = result.thread_id || state.chatThreadId;
-      addChatMessage("bot", result.answer || "助手未返回内容。", {
-        sql_query: result.sql_query || "",
-        validation_passed: result.validation_passed !== false
-      });
-      renderChatWindow();
-      saveState();
-    } catch (error) {
-      addChatMessage("bot", `请求失败：${error.message || "未知错误"}`);
-      renderChatWindow();
-      saveState();
-    }
-  });
-}
+// ── DB ──────────────────────────────────────────────────────────────────
 
 function renderDbStatus() {
   const connected = state.dbConnected;
@@ -485,10 +360,7 @@ function renderDbStatus() {
 }
 
 function renderDbTables(tables) {
-  if (!tables || !tables.length) {
-    el.dbTablesPreview.style.display = "none";
-    return;
-  }
+  if (!tables || !tables.length) { el.dbTablesPreview.style.display = "none"; return; }
   el.dbTablesPreview.style.display = "";
   el.dbTablesList.innerHTML = "";
   const frag = document.createDocumentFragment();
@@ -513,43 +385,142 @@ async function fetchDbStatus() {
       el.dbDatabase.value = result.database || "";
     }
     renderDbStatus();
-  } catch (_err) {
-    // ignore
-  }
+  } catch (_err) { /* ignore */ }
+}
+
+// ── Event Binding ───────────────────────────────────────────────────────
+
+function initAuthEvents() {
+  el.authForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const u = el.authUsername.value.trim();
+    const p = el.authPassword.value;
+    if (!u || !p) { el.authError.textContent = "请输入用户名和密码。"; return; }
+    el.loginBtn.disabled = true;
+    el.registerBtn.disabled = true;
+    await handleLogin(u, p);
+    el.loginBtn.disabled = false;
+    el.registerBtn.disabled = false;
+  });
+
+  el.registerBtn.addEventListener("click", async () => {
+    const u = el.authUsername.value.trim();
+    const p = el.authPassword.value;
+    if (!u || !p) { el.authError.textContent = "请输入用户名和密码。"; return; }
+    if (p.length < 4) { el.authError.textContent = "密码至少 4 位。"; return; }
+    el.loginBtn.disabled = true;
+    el.registerBtn.disabled = true;
+    await handleRegister(u, p);
+    el.loginBtn.disabled = false;
+    el.registerBtn.disabled = false;
+  });
+
+  el.logoutBtn.addEventListener("click", handleLogout);
+}
+
+function initEvents() {
+  el.selectFileBtn.addEventListener("click", () => el.fileInput.click());
+  el.importBtn.addEventListener("click", () => el.fileInput.click());
+  el.fileInput.addEventListener("change", async (e) => { await handleFile(e.target.files?.[0]); e.target.value = ""; });
+
+  ["dragenter", "dragover"].forEach((n) => el.dropZone.addEventListener(n, (e) => { e.preventDefault(); el.dropZone.classList.add("drag-over"); }));
+  ["dragleave", "drop"].forEach((n) => el.dropZone.addEventListener(n, () => el.dropZone.classList.remove("drag-over")));
+  el.dropZone.addEventListener("drop", async (e) => { e.preventDefault(); await handleFile(e.dataTransfer?.files?.[0]); });
+  el.dropZone.addEventListener("click", () => el.fileInput.click());
+  el.dropZone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.fileInput.click(); } });
+
+  el.searchInput.addEventListener("input", (e) => { state.searchKeyword = e.target.value || ""; renderSkillList(); });
+
+  el.skillList.addEventListener("click", async (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    const id = target.dataset.id;
+    if (!id) return;
+    if (target.classList.contains("delete-btn")) {
+      const cur = state.skills.find((s) => s.id === id);
+      const sf = (cur?.source_file || "").trim();
+      if (!window.confirm(sf ? "该技能来自上传文件，删除后会同步删除同一文件导入的全部技能，确认继续吗？" : "确认删除该技能吗？")) return;
+      try {
+        await apiRequest(`/skills/${id}`, { method: "DELETE" });
+        state.selectedIds.delete(id);
+        await fetchSkills();
+        showToast("技能已删除");
+        renderAll();
+      } catch (err) { showToast(err.message || "删除失败", true); }
+    }
+  });
+
+  el.skillList.addEventListener("change", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains("skill-checkbox")) return;
+    const id = target.dataset.id;
+    if (!id) return;
+    target.checked ? state.selectedIds.add(id) : state.selectedIds.delete(id);
+    const allIds = getFilteredSkills().map((s) => s.id);
+    el.selectAllCheckbox.checked = allIds.length > 0 && allIds.every((n) => state.selectedIds.has(n));
+  });
+
+  el.selectAllCheckbox.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    getFilteredSkills().forEach((s) => checked ? state.selectedIds.add(s.id) : state.selectedIds.delete(s.id));
+    renderSkillList();
+  });
+
+  el.batchDeleteBtn.addEventListener("click", async () => {
+    if (!state.selectedIds.size) { showToast("请先选中要删除的技能。", true); return; }
+    if (!window.confirm(`确认删除已选中的 ${state.selectedIds.size} 项技能吗？`)) return;
+    try {
+      await apiRequest("/skills/batch-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: Array.from(state.selectedIds) }) });
+      state.selectedIds = new Set();
+      el.selectAllCheckbox.checked = false;
+      await fetchSkills();
+      showToast("批量删除完成");
+      renderAll();
+    } catch (err) { showToast(err.message || "批量删除失败", true); }
+  });
+
+  el.chatForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = el.chatInput.value.trim();
+    if (!text) return;
+    addChatMessage("user", text);
+    renderChatWindow();
+    el.chatInput.value = "";
+    try {
+      const result = await apiRequest("/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, thread_id: state.chatThreadId }) });
+      state.chatThreadId = result.thread_id || state.chatThreadId;
+      addChatMessage("bot", result.answer || "助手未返回内容。", { sql_query: result.sql_query || "", validation_passed: result.validation_passed !== false });
+      renderChatWindow();
+      saveState();
+    } catch (err) {
+      addChatMessage("bot", `请求失败：${err.message || "未知错误"}`);
+      renderChatWindow();
+      saveState();
+    }
+  });
 }
 
 function initDbEvents() {
   fetchDbStatus();
 
-  el.dbForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  el.dbForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
     const host = el.dbHost.value.trim();
     const port = parseInt(el.dbPort.value, 10) || 3306;
     const user = el.dbUser.value.trim();
     const password = el.dbPassword.value;
     const database = el.dbDatabase.value.trim();
-    if (!host || !user || !database) {
-      showToast("请填写 Host、User 和 Database。", true);
-      return;
-    }
+    if (!host || !user || !database) { showToast("请填写 Host、User 和 Database。", true); return; }
     el.dbConnectBtn.disabled = true;
     el.dbConnectBtn.textContent = "连接中...";
     try {
-      const result = await apiRequest("/database/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ host, port, user, password, database })
-      });
+      const result = await apiRequest("/database/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ host, port, user, password, database }) });
       state.dbConnected = true;
       renderDbStatus();
       renderDbTables(result.tables || []);
       showToast(`已连接 ${result.database}，共 ${(result.tables || []).length} 张表`);
-    } catch (error) {
-      showToast(error.message || "连接失败", true);
-    } finally {
-      el.dbConnectBtn.disabled = false;
-      el.dbConnectBtn.textContent = "连接";
-    }
+    } catch (err) { showToast(err.message || "连接失败", true); }
+    finally { el.dbConnectBtn.disabled = false; el.dbConnectBtn.textContent = "连接"; }
   });
 
   el.dbDisconnectBtn.addEventListener("click", async () => {
@@ -560,25 +531,28 @@ function initDbEvents() {
       renderDbTables([]);
       el.dbPassword.value = "";
       showToast("已断开连接");
-    } catch (error) {
-      showToast(error.message || "断开失败", true);
-    }
+    } catch (err) { showToast(err.message || "断开失败", true); }
   });
 }
 
+// ── Bootstrap ───────────────────────────────────────────────────────────
+
 async function bootstrap() {
-  loadState();
-  if (el.uploadHint) {
-    el.uploadHint.textContent = `当前用户：${state.userId}（按技能名更新；可通过 ?user_id=xxx 切换隔离空间）`;
+  initAuthEvents();
+
+  if (state.token) {
+    try {
+      await apiRequest("/auth/me");
+      await onLoginSuccess();
+    } catch (_err) {
+      handleLogout();
+    }
+  } else {
+    showAuth();
   }
+
   initEvents();
   initDbEvents();
-  try {
-    await fetchSkills();
-  } catch (error) {
-    showToast(`加载技能失败：${error.message || "未知错误"}`, true);
-  }
-  renderAll();
 }
 
 void bootstrap();

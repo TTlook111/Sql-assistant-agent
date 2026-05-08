@@ -727,3 +727,90 @@ select:focus {
   color: #7a8bc0;
   font-size: 0.76rem;
 }
+
+/* Auth Overlay */
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(55, 101, 255, 0.3) 0%, transparent 40%),
+    radial-gradient(circle at 70% 80%, rgba(0, 232, 255, 0.2) 0%, transparent 40%),
+    linear-gradient(155deg, #0a0f22, #121a37);
+}
+
+.auth-overlay.hidden {
+  display: none;
+}
+
+.auth-card {
+  background: rgba(18, 27, 57, 0.85);
+  border: 1px solid rgba(154, 180, 255, 0.22);
+  border-radius: 20px;
+  padding: 36px 32px;
+  width: min(380px, 90%);
+  box-shadow: 0 24px 48px rgba(3, 7, 18, 0.5);
+  backdrop-filter: blur(16px);
+  text-align: center;
+}
+
+.auth-title {
+  font-family: "ZCOOL KuaiLe", cursive;
+  font-size: 2rem;
+  margin: 0 0 6px;
+  text-shadow:
+    0 8px 22px rgba(85, 140, 255, 0.35),
+    0 0 26px rgba(116, 245, 255, 0.24);
+}
+
+.auth-subtitle {
+  color: #b4c1ea;
+  font-size: 0.9rem;
+  margin: 0 0 24px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auth-field label {
+  font-size: 0.85rem;
+  color: #b4c1ea;
+}
+
+.auth-field input {
+  font-size: 0.95rem;
+  padding: 10px 12px;
+}
+
+.auth-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.auth-actions .btn {
+  flex: 1;
+  padding: 10px;
+  font-size: 0.95rem;
+}
+
+.auth-error {
+  color: #ff7da8;
+  font-size: 0.85rem;
+  margin: 0;
+  min-height: 1.2em;
+  text-align: center;
+}

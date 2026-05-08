@@ -1,4 +1,9 @@
-from langgraph.checkpoint.memory import InMemorySaver
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
 from sql_assistant_agent.agent.nodes import (
@@ -12,6 +17,14 @@ from sql_assistant_agent.agent.nodes import (
     validator_node,
 )
 from sql_assistant_agent.agent.state import AgentGraphState
+from sql_assistant_agent.config.config import SQLITE_MEMORY_PATH
+
+
+def _get_checkpointer() -> SqliteSaver:
+    db_path = Path(SQLITE_MEMORY_PATH)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    return SqliteSaver(conn)
 
 
 def build_sql_assistant_agent():
@@ -42,4 +55,4 @@ def build_sql_assistant_agent():
         {"sql_generator": "sql_generator", "__end__": END},
     )
 
-    return graph.compile(checkpointer=InMemorySaver())
+    return graph.compile(checkpointer=_get_checkpointer())

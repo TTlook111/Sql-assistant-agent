@@ -15,16 +15,26 @@ from sql_assistant_agent.agent.prompts import (
 from sql_assistant_agent.agent.state import AgentGraphState, PlannerDecision
 from sql_assistant_agent.config.config import DASHSCOPE_API_KEY
 from sql_assistant_agent.db.connection import get_db_manager
+from sql_assistant_agent.db.init_db import get_db_session
 from sql_assistant_agent.db.schema import format_schema_markdown, introspect_schema
 from sql_assistant_agent.runtime.context import get_current_user_id
-from sql_assistant_agent.storage.skill_store import SkillStore
+from sql_assistant_agent.storage.mysql_skill_store import MySQLSkillStore
 
-_store = SkillStore()
+_store = MySQLSkillStore()
 _model = ChatTongyi(model="qwen3-max", api_key=DASHSCOPE_API_KEY)
 
 
-def _build_skills_summary(user_id: str, user_query: str) -> str:
-    skills = _store.search_relevant_skills(user_id, user_query, limit=5)
+def _get_user_id_int() -> int:
+    raw = get_current_user_id()
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _build_skills_summary(user_id: int, user_query: str) -> str:
+    with get_db_session() as db:
+        skills = _store.search_relevant_skills(db, user_id, user_query, limit=5)
     if not skills:
         return "- 暂无可用技能。"
     lines: list[str] = []
@@ -69,7 +79,7 @@ def _extract_sql_from_text(text: str) -> str:
 
 
 def planner_node(state: AgentGraphState) -> dict[str, Any]:
-    user_id = get_current_user_id()
+    user_id = _get_user_id_int()
     user_query = _extract_latest_user_query(state)
     skills_summary = _build_skills_summary(user_id, user_query)
 
@@ -112,7 +122,7 @@ def planner_node(state: AgentGraphState) -> dict[str, Any]:
 
 
 def schema_loader_node(state: AgentGraphState) -> dict[str, Any]:
-    user_id = get_current_user_id()
+    user_id = _get_user_id_int()
     db_manager = get_db_manager()
 
     if not db_manager.is_connected(user_id):
@@ -156,23 +166,25 @@ def schema_loader_node(state: AgentGraphState) -> dict[str, Any]:
 
 
 def skill_loader_node(state: AgentGraphState) -> dict[str, Any]:
-    user_id = get_current_user_id()
+    user_id = _get_user_id_int()
     decision = state.get("planner_decision") or {}
     skill_name = (decision.get("skill_name") or "").strip()
 
-    if not skill_name:
-        user_query = _extract_latest_user_query(state)
-        skills = _store.search_relevant_skills(user_id, user_query, limit=1)
-        if skills:
-            skill_name = skills[0]["name"]
+    with get_db_session() as db:
+        if not skill_name:
+            user_query = _extract_latest_user_query(state)
+            skills = _store.search_relevant_skills(db, user_id, user_query, limit=1)
+            if skills:
+                skill_name = skills[0]["name"]
 
-    if not skill_name:
-        return {
-            "skill_content": "",
-            "messages": [AIMessage(content="[技能加载] 未找到匹配的技能，将直接生成 SQL。")],
-        }
+        if not skill_name:
+            return {
+                "skill_content": "",
+                "messages": [AIMessage(content="[技能加载] 未找到匹配的技能，将直接生成 SQL。")],
+            }
 
-    skill = _store.find_best_skill_match(user_id, skill_name)
+        skill = _store.find_best_skill_match(db, user_id, skill_name)
+
     if not skill:
         return {
             "skill_content": "",
@@ -186,7 +198,7 @@ def skill_loader_node(state: AgentGraphState) -> dict[str, Any]:
 
 
 def sql_generator_node(state: AgentGraphState) -> dict[str, Any]:
-    user_id = get_current_user_id()
+    user_id = _get_user_id_int()
     user_query = _extract_latest_user_query(state)
     skill_content = state.get("skill_content", "")
     db_schema = state.get("db_schema", "")
@@ -274,8 +286,6 @@ def route_after_planner(state: AgentGraphState) -> str:
     action = decision.get("action", "load_skill")
     if action == "reply":
         return "__end__"
-    if action == "direct_sql":
-        return "schema_loader"
     return "schema_loader"
 
 

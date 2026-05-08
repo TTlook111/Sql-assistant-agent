@@ -13,13 +13,39 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <!-- Login/Register Overlay -->
+    <div id="authOverlay" class="auth-overlay">
+      <div class="auth-card">
+        <h1 class="auth-title">SQL Assistant</h1>
+        <p class="auth-subtitle">登录后开始使用 NL2SQL 助手</p>
+        <form id="authForm" class="auth-form">
+          <div class="auth-field">
+            <label>用户名</label>
+            <input id="authUsername" type="text" placeholder="请输入用户名" autocomplete="username" />
+          </div>
+          <div class="auth-field">
+            <label>密码</label>
+            <input id="authPassword" type="password" placeholder="请输入密码" autocomplete="current-password" />
+          </div>
+          <div class="auth-actions">
+            <button id="loginBtn" class="btn" type="submit">登录</button>
+            <button id="registerBtn" class="btn secondary" type="button">注册</button>
+          </div>
+          <p id="authError" class="auth-error"></p>
+        </form>
+      </div>
+    </div>
+
+    <!-- Main App (hidden until logged in) -->
+    <div id="appShell" class="app-shell" style="display:none">
       <header class="top-bar">
         <div>
           <h1>Skill Studio</h1>
           <p class="hero-subtitle">上传、管理 skills.md，并让 Agent 按技能上下文稳定作答</p>
         </div>
         <div class="top-actions">
+          <span id="currentUser" class="badge"></span>
+          <button id="logoutBtn" class="btn ghost" type="button">退出</button>
           <button id="importBtn" class="btn ghost" type="button">导入 skills.md</button>
           <input id="fileInput" type="file" accept=".md,.markdown,text/markdown" hidden />
         </div>
