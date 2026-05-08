@@ -3,33 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Skill Studio</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=ZCOOL+KuaiLe&display=swap"
-      rel="stylesheet"
-    />
+    <title>SQL Assistant - AI驱动的SQL查询助手</title>
+    <meta name="description" content="使用自然语言与数据库交互，AI自动生成SQL查询" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🤖%3C/text%3E%3C/svg%3E" />
   </head>
   <body>
     <!-- Login/Register Overlay -->
     <div id="authOverlay" class="auth-overlay">
       <div class="auth-card">
         <h1 class="auth-title">SQL Assistant</h1>
-        <p class="auth-subtitle">登录后开始使用 NL2SQL 助手</p>
+        <p class="auth-subtitle">登录后开始使用 AI 驱动的 SQL 查询助手</p>
         <form id="authForm" class="auth-form">
           <div class="auth-field">
-            <label>用户名</label>
+            <label for="authUsername">用户名</label>
             <input id="authUsername" type="text" placeholder="请输入用户名" autocomplete="username" />
           </div>
           <div class="auth-field">
-            <label>密码</label>
+            <label for="authPassword">密码</label>
             <input id="authPassword" type="password" placeholder="请输入密码" autocomplete="current-password" />
           </div>
           <div class="auth-actions">
-            <button id="loginBtn" class="btn" type="submit">登录</button>
-            <button id="registerBtn" class="btn secondary" type="button">注册</button>
+            <button id="loginBtn" class="btn btn-primary" type="submit">登录</button>
+            <button id="registerBtn" class="btn btn-secondary" type="button">注册</button>
           </div>
           <p id="authError" class="auth-error"></p>
         </form>
@@ -37,124 +33,188 @@
     </div>
 
     <!-- Main App (hidden until logged in) -->
-    <div id="appShell" class="app-shell" style="display:none">
-      <header class="top-bar">
-        <div>
-          <h1>Skill Studio</h1>
-          <p class="hero-subtitle">上传、管理 skills.md，并让 Agent 按技能上下文稳定作答</p>
+    <div id="appShell" class="app" style="display:none">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-left">
+          <button id="sidebarToggle" class="sidebar-toggle btn-icon" type="button" aria-label="切换侧边栏">
+            ☰
+          </button>
+          <a href="/" class="logo">
+            <div class="logo-icon">S</div>
+            <span class="logo-text">SQL Assistant</span>
+          </a>
         </div>
-        <div class="top-actions">
-          <span id="currentUser" class="badge"></span>
-          <button id="logoutBtn" class="btn ghost" type="button">退出</button>
-          <button id="importBtn" class="btn ghost" type="button">导入 skills.md</button>
-          <input id="fileInput" type="file" accept=".md,.markdown,text/markdown" hidden />
+        <div class="header-right">
+          <div id="statusBadges" class="status-badges">
+            <span id="userBadge" class="badge">用户：-</span>
+            <span id="modeBadge" class="badge badge-primary">生效模式：-</span>
+            <span id="countBadge" class="badge">技能数：-</span>
+          </div>
+          <div class="user-menu" id="userMenu">
+            <div class="user-menu-trigger" id="userMenuTrigger">
+              <div class="user-avatar" id="userAvatar">U</div>
+              <span class="user-name" id="currentUser">用户</span>
+            </div>
+            <div class="user-menu-dropdown">
+              <div class="user-menu-item" id="logoutBtn">
+                <span>退出登录</span>
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 
-      <section class="status-strip" aria-live="polite">
-        <span id="userBadge" class="badge">用户：-</span>
-        <span id="modeBadge" class="badge accent">生效模式：-</span>
-        <span id="countBadge" class="badge">技能数：-</span>
-      </section>
+      <!-- Main Layout -->
+      <div class="main-layout">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="sidebar">
+          <div class="sidebar-content">
+            <!-- Database Section -->
+            <div class="sidebar-section">
+              <div class="sidebar-section-title">数据库连接</div>
+              <div class="sidebar-panel" id="dbPanel">
+                <div class="sidebar-panel-header" data-toggle="dbPanel">
+                  <span class="sidebar-panel-title">MySQL 配置</span>
+                  <span class="sidebar-panel-toggle">▼</span>
+                </div>
+                <div class="sidebar-panel-content">
+                  <div class="db-status" id="dbStatusBar">
+                    <span class="db-status-dot"></span>
+                    <span id="dbStatusBadge">未连接</span>
+                  </div>
+                  <form id="dbForm" class="db-form">
+                    <div class="db-field">
+                      <label for="dbHost">Host</label>
+                      <input id="dbHost" type="text" placeholder="127.0.0.1" value="127.0.0.1" />
+                    </div>
+                    <div class="db-field">
+                      <label for="dbPort">Port</label>
+                      <input id="dbPort" type="number" placeholder="3306" value="3306" />
+                    </div>
+                    <div class="db-field">
+                      <label for="dbUser">User</label>
+                      <input id="dbUser" type="text" placeholder="root" />
+                    </div>
+                    <div class="db-field">
+                      <label for="dbPassword">Password</label>
+                      <input id="dbPassword" type="password" placeholder="密码" />
+                    </div>
+                    <div class="db-field">
+                      <label for="dbDatabase">Database</label>
+                      <input id="dbDatabase" type="text" placeholder="数据库名" />
+                    </div>
+                    <div class="db-actions">
+                      <button id="dbConnectBtn" class="btn btn-primary btn-sm" type="submit">连接</button>
+                      <button id="dbDisconnectBtn" class="btn btn-danger btn-sm" type="button" style="display:none">断开</button>
+                    </div>
+                  </form>
+                  <div id="dbTablesPreview" class="db-tables-preview" style="display:none">
+                    <h4>表列表</h4>
+                    <div id="dbTablesList" class="db-tables-list"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-      <main class="layout">
-        <section class="panel db-panel">
-          <h2>数据库连接</h2>
-          <div class="db-status-row">
-            <span id="dbStatusBadge" class="badge">未连接</span>
-          </div>
-          <form id="dbForm" class="db-form">
-            <div class="db-field">
-              <label>Host</label>
-              <input id="dbHost" type="text" placeholder="127.0.0.1" value="127.0.0.1" />
+            <!-- File Upload Section -->
+            <div class="sidebar-section">
+              <div class="sidebar-section-title">文件上传</div>
+              <div class="sidebar-panel" id="uploadPanel">
+                <div class="sidebar-panel-header" data-toggle="uploadPanel">
+                  <span class="sidebar-panel-title">上传 Skills</span>
+                  <span class="sidebar-panel-toggle">▼</span>
+                </div>
+                <div class="sidebar-panel-content">
+                  <div id="dropZone" class="drop-zone" role="button" tabindex="0">
+                    <div class="drop-zone-icon">📁</div>
+                    <div class="drop-zone-text">拖拽 skills.md 到这里</div>
+                    <div class="drop-zone-hint">或点击选择文件</div>
+                    <button id="selectFileBtn" class="btn btn-secondary btn-sm" type="button" style="margin-top: 8px;">选择文件</button>
+                  </div>
+                  <input id="fileInput" type="file" accept=".md,.markdown,text/markdown" hidden />
+                  <p id="uploadHint" class="drop-zone-hint" style="margin-top: 8px;">支持 Markdown 文件上传</p>
+                  <button id="importBtn" class="btn btn-ghost btn-sm" type="button" style="margin-top: 8px; width: 100%;">导入 skills.md</button>
+                </div>
+              </div>
             </div>
-            <div class="db-field">
-              <label>Port</label>
-              <input id="dbPort" type="number" placeholder="3306" value="3306" />
-            </div>
-            <div class="db-field">
-              <label>User</label>
-              <input id="dbUser" type="text" placeholder="root" />
-            </div>
-            <div class="db-field">
-              <label>Password</label>
-              <input id="dbPassword" type="password" placeholder="密码" />
-            </div>
-            <div class="db-field">
-              <label>Database</label>
-              <input id="dbDatabase" type="text" placeholder="数据库名" />
-            </div>
-            <div class="db-actions">
-              <button id="dbConnectBtn" class="btn" type="submit">连接</button>
-              <button id="dbDisconnectBtn" class="btn danger" type="button" style="display:none">断开</button>
-            </div>
-          </form>
-          <div id="dbTablesPreview" class="db-tables-preview" style="display:none">
-            <h3>表列表</h3>
-            <div id="dbTablesList" class="db-tables-list"></div>
-          </div>
-        </section>
 
-        <section class="panel uploader-panel">
-          <h2>文件上传</h2>
-          <div id="dropZone" class="drop-zone" role="button" tabindex="0">
-            <p class="drop-title">拖拽 skills.md 到这里</p>
-            <p class="drop-sub">或点击选择文件</p>
-            <button id="selectFileBtn" class="btn secondary" type="button">选择文件</button>
-          </div>
-          <p id="uploadHint" class="hint">支持 Markdown 文件上传，上传后会按技能名更新并参与路由。</p>
-        </section>
-
-        <section class="panel manager-panel">
-          <div class="section-head">
-            <h2>技能管理</h2>
-            <div class="inline-actions">
-              <button id="batchDeleteBtn" class="btn danger" type="button">删除选中</button>
+            <!-- Skills Section -->
+            <div class="sidebar-section">
+              <div class="sidebar-section-title">技能管理</div>
+              <div class="sidebar-panel" id="skillsPanel">
+                <div class="sidebar-panel-header" data-toggle="skillsPanel">
+                  <span class="sidebar-panel-title">技能列表</span>
+                  <span class="sidebar-panel-toggle">▼</span>
+                </div>
+                <div class="sidebar-panel-content">
+                  <div class="toolbar" style="display: flex; gap: 8px; margin-bottom: 8px;">
+                    <label class="checkbox-wrapper">
+                      <input id="selectAllCheckbox" type="checkbox" class="checkbox" />
+                      <span class="checkbox-label">全选</span>
+                    </label>
+                    <input id="searchInput" type="search" class="input" placeholder="搜索技能名称/标签" style="flex: 1;" />
+                  </div>
+                  <div id="skillList" class="skill-list" aria-live="polite"></div>
+                  <p id="emptyState" class="empty-sidebar" style="display:none">
+                    <div class="empty-sidebar-icon">📋</div>
+                    <div class="empty-sidebar-text">暂无可展示技能，请先上传 skills.md。</div>
+                  </p>
+                  <button id="batchDeleteBtn" class="btn btn-danger btn-sm" type="button" style="margin-top: 8px; width: 100%;">删除选中</button>
+                </div>
+              </div>
             </div>
           </div>
+        </aside>
 
-          <div class="toolbar">
-            <label class="check-wrap">
-              <input id="selectAllCheckbox" type="checkbox" />
-              <span>全选</span>
-            </label>
-            <input id="searchInput" type="search" placeholder="搜索技能名称/标签" />
-          </div>
-          <div id="skillList" class="skill-list" aria-live="polite"></div>
-          <p id="emptyState" class="empty-state">当前暂无可展示技能，请先上传 skills.md。</p>
-        </section>
+        <!-- Sidebar Overlay (Mobile) -->
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
 
-        <section class="panel chat-panel">
-          <div class="section-head">
-            <h2>Agent 对话</h2>
-            <div class="chat-header-actions">
-              <button id="newChatBtn" class="btn ghost" type="button">新对话</button>
-              <button id="toggleHistoryBtn" class="btn ghost" type="button">历史</button>
-              <span id="chatModeTip" class="chat-mode-tip">路由模式：-</span>
+        <!-- Main Content -->
+        <main class="content">
+          <!-- Chat Panel -->
+          <div class="chat-container">
+            <div class="chat-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+              <h2 style="margin: 0; font-size: 1.25rem;">Agent 对话</h2>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="newChatBtn" class="btn btn-ghost btn-sm" type="button">新对话</button>
+                <button id="toggleHistoryBtn" class="btn btn-ghost btn-sm" type="button">历史</button>
+                <span id="chatModeTip" class="badge">路由模式：-</span>
+              </div>
+            </div>
+
+            <!-- Thread History (Hidden by default) -->
+            <div id="threadHistory" class="thread-history" style="display:none">
+              <div id="threadList" class="thread-list"></div>
+            </div>
+
+            <!-- Chat Messages -->
+            <div id="chatWindow" class="chat-messages"></div>
+
+            <!-- Chat Input -->
+            <div class="chat-input-container">
+              <form id="chatForm" class="chat-input-wrapper">
+                <textarea
+                  id="chatInput"
+                  class="chat-input"
+                  maxlength="2000"
+                  placeholder="输入问题，例如：查询所有用户订单"
+                  rows="1"
+                ></textarea>
+                <button class="chat-submit" type="submit" aria-label="发送">
+                  ➤
+                </button>
+              </form>
             </div>
           </div>
-          <div id="threadHistory" class="thread-history" style="display:none">
-            <div id="threadList" class="thread-list"></div>
-          </div>
-          <div id="chatWindow" class="chat-window"></div>
-          <form id="chatForm" class="chat-form">
-            <input id="chatInput" type="text" maxlength="500" placeholder="输入问题，例如：如何提升这个技能的项目实战能力？" />
-            <button class="btn" type="submit">发送</button>
-          </form>
-        </section>
-      </main>
+        </main>
+      </div>
     </div>
 
-    <a
-      class="deerflow-signature"
-      href="https://deerflow.tech"
-      target="_blank"
-      rel="noreferrer"
-    >
-      Created By Deerflow
-    </a>
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
 
-    <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js"></script>
+    <!-- App Entry Point -->
+    <script type="module" src="./js/app.js"></script>
   </body>
 </html>

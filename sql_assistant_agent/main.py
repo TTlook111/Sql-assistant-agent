@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -428,16 +428,4 @@ def get_thread_messages(
 
 # ── Frontend Static Files ───────────────────────────────────────────────
 
-@app.get("/")
-def frontend_index() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "index.html")
-
-
-@app.get("/styles.css")
-def frontend_style() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "styles.css")
-
-
-@app.get("/app.js")
-def frontend_script() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "app.js")
+app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
