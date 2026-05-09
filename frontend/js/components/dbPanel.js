@@ -5,10 +5,11 @@
 import { getState, setState, subscribe } from '../state.js';
 import { listDatabasesApi, connectDbApi, disconnectDbApi, getDbStatusApi } from '../api.js';
 import { showToast } from './toast.js';
-import { escapeHtml } from '../utils.js';
+import { escapeHtml, debounce } from '../utils.js';
 
 // ── DOM References ───────────────────────────────────────────────────────
 let el = {};
+let isLoadingDatabases = false;
 
 function cacheDom() {
   el = {
@@ -18,12 +19,9 @@ function cacheDom() {
     dbUser: document.getElementById('dbUser'),
     dbPassword: document.getElementById('dbPassword'),
     dbDatabase: document.getElementById('dbDatabase'),
-    dbFetchDatabasesBtn: document.getElementById('dbFetchDatabasesBtn'),
     dbConnectBtn: document.getElementById('dbConnectBtn'),
     dbDisconnectBtn: document.getElementById('dbDisconnectBtn'),
     dbStatusBadge: document.getElementById('dbStatusBadge'),
-    dbTablesPreview: document.getElementById('dbTablesPreview'),
-    dbTablesList: document.getElementById('dbTablesList'),
   };
 }
 
@@ -46,10 +44,6 @@ export function renderDbStatus() {
 
   if (el.dbDisconnectBtn) {
     el.dbDisconnectBtn.style.display = dbConnected ? '' : 'none';
-  }
-
-  if (el.dbFetchDatabasesBtn) {
-    el.dbFetchDatabasesBtn.style.display = dbConnected ? 'none' : '';
   }
 
   // 禁用/启用表单字段
@@ -92,85 +86,43 @@ function renderDatabaseSelect(databases) {
   }
 }
 
-/**
- * 渲染数据库表列表
- * @param {Array} tables - 表数组
- */
-export function renderDbTables(tables) {
-  if (!el.dbTablesPreview) return;
-
-  if (!tables || !tables.length) {
-    el.dbTablesPreview.style.display = 'none';
-    return;
-  }
-
-  el.dbTablesPreview.style.display = '';
-  if (el.dbTablesList) {
-    el.dbTablesList.innerHTML = '';
-
-    const frag = document.createDocumentFragment();
-
-    tables.forEach(t => {
-      const div = document.createElement('div');
-      div.className = 'db-table-item';
-      const comment = t.comment ? ` — ${escapeHtml(t.comment)}` : '';
-
-      div.innerHTML = `
-        <span>
-          <span class="db-table-name">${escapeHtml(t.name)}</span>
-          <span class="db-table-comment">${comment}</span>
-        </span>
-        <span class="db-table-meta">${t.columns_count} 列</span>
-      `;
-
-      frag.appendChild(div);
-    });
-
-    el.dbTablesList.appendChild(frag);
-  }
-}
-
 // ── API Functions ────────────────────────────────────────────────────────
 
 /**
- * 获取数据库列表
+ * 获取数据库列表（自动触发）
  */
 async function fetchDatabaseList() {
+  if (isLoadingDatabases) return;
+
   const host = el.dbHost?.value?.trim();
   const port = parseInt(el.dbPort?.value, 10) || 3306;
   const user = el.dbUser?.value?.trim();
   const password = el.dbPassword?.value || '';
 
+  // 至少需要host和user
   if (!host || !user) {
-    showToast('请先填写 Host 和 User。', 'warning');
     return;
   }
 
-  if (el.dbFetchDatabasesBtn) {
-    el.dbFetchDatabasesBtn.disabled = true;
-    el.dbFetchDatabasesBtn.textContent = '获取中...';
-  }
+  isLoadingDatabases = true;
 
   try {
     const result = await listDatabasesApi({ host, port, user, password });
     const databases = result.databases || [];
 
     renderDatabaseSelect(databases);
-
-    if (databases.length > 0) {
-      showToast(`获取到 ${databases.length} 个数据库`, 'success');
-    } else {
-      showToast('未找到用户数据库', 'warning');
-    }
   } catch (err) {
-    showToast(err.message || '获取数据库列表失败', 'error');
+    // 静默失败，不显示toast
+    console.error('获取数据库列表失败:', err);
   } finally {
-    if (el.dbFetchDatabasesBtn) {
-      el.dbFetchDatabasesBtn.disabled = false;
-      el.dbFetchDatabasesBtn.textContent = '获取数据库列表';
-    }
+    isLoadingDatabases = false;
   }
 }
+
+/**
+ * 防抖版本的获取数据库列表
+ */
+const fetchDatabaseListDebounced = debounce(fetchDatabaseList, 1200);
 
 /**
  * 获取数据库状态
@@ -187,7 +139,6 @@ export async function fetchDbStatus() {
       if (el.dbPort) el.dbPort.value = result.port || 3306;
       if (el.dbUser) el.dbUser.value = result.user || '';
       if (el.dbDatabase) {
-        // 如果已连接，设置为只读显示
         el.dbDatabase.innerHTML = `<option value="${escapeHtml(result.database || '')}">${escapeHtml(result.database || '')}</option>`;
       }
     }
@@ -199,6 +150,16 @@ export async function fetchDbStatus() {
 }
 
 // ── Event Handlers ───────────────────────────────────────────────────────
+
+/**
+ * 处理输入变化（自动获取数据库列表）
+ */
+function handleInputChange() {
+  const { dbConnected } = getState();
+  if (dbConnected) return;
+
+  fetchDatabaseListDebounced();
+}
 
 /**
  * 处理数据库连接表单提交
@@ -232,9 +193,8 @@ async function handleConnect(e) {
     });
 
     renderDbStatus();
-    renderDbTables(result.tables || []);
 
-    showToast(`已连接 ${result.database}，共 ${(result.tables || []).length} 张表`, 'success');
+    showToast(`已连接 ${result.database}`, 'success');
   } catch (err) {
     showToast(err.message || '连接失败', 'error');
   } finally {
@@ -259,11 +219,10 @@ async function handleDisconnect() {
     });
 
     renderDbStatus();
-    renderDbTables([]);
 
-    // 重置数据库选择为输入模式
+    // 重置数据库选择
     if (el.dbDatabase) {
-      el.dbDatabase.innerHTML = '<option value="">-- 请先获取数据库列表 --</option>';
+      el.dbDatabase.innerHTML = '<option value="">-- 请填写连接信息 --</option>';
     }
 
     if (el.dbPassword) {
@@ -287,10 +246,13 @@ export function initDbPanel() {
   // 获取初始状态
   fetchDbStatus();
 
-  // 获取数据库列表按钮
-  if (el.dbFetchDatabasesBtn) {
-    el.dbFetchDatabasesBtn.addEventListener('click', fetchDatabaseList);
-  }
+  // 输入框变化时自动获取数据库列表
+  const inputs = [el.dbHost, el.dbPort, el.dbUser, el.dbPassword];
+  inputs.forEach(input => {
+    if (input) {
+      input.addEventListener('input', handleInputChange);
+    }
+  });
 
   // 连接表单提交
   if (el.dbForm) {
@@ -311,6 +273,5 @@ export function initDbPanel() {
 export default {
   initDbPanel,
   renderDbStatus,
-  renderDbTables,
   fetchDbStatus,
 };

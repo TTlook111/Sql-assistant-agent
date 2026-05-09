@@ -20,10 +20,9 @@
   justify-content: space-between;
   height: var(--header-height);
   padding: 0 var(--space-6);
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-primary);
   border-bottom: 1px solid var(--color-border);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-sm);
 }
 
 .header-left {
@@ -42,13 +41,13 @@
 .logo {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   text-decoration: none;
 }
 
 .logo-icon {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   background: var(--gradient-primary);
   border-radius: var(--radius-lg);
   display: flex;
@@ -57,12 +56,16 @@
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
   color: white;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
 
 .logo-text {
-  font-size: var(--text-md);
+  font-size: var(--text-lg);
   font-weight: var(--weight-bold);
-  color: var(--color-text-primary);
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 /* ── Sidebar Toggle ───────────────────────────────────────────────────── */
@@ -97,7 +100,7 @@
   top: var(--header-height);
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-primary);
   border-right: 1px solid var(--color-border);
   overflow-y: auto;
   transition: width var(--transition-slow), transform var(--transition-slow);
@@ -128,8 +131,8 @@
   font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--color-text-tertiary);
-  padding: var(--space-2) var(--space-2) var(--space-1);
+  color: var(--color-text-secondary);
+  padding: var(--space-4) var(--space-4) var(--space-2);
 }
 
 /* ── Sidebar Items ────────────────────────────────────────────────────── */
@@ -185,10 +188,10 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
   width: 100%;
-  padding: var(--space-4);
+  padding: var(--space-6);
 }
 
 /* ── Chat Messages ────────────────────────────────────────────────────── */
@@ -251,13 +254,14 @@
 }
 
 .message.user .message-bubble {
-  background: var(--color-accent-emphasis);
+  background: var(--gradient-primary);
   color: white;
   border-bottom-right-radius: var(--radius-sm);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
 
 .message.bot .message-bubble {
-  background: var(--color-surface);
+  background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
   border-bottom-left-radius: var(--radius-sm);
@@ -339,8 +343,8 @@
   display: flex;
   gap: var(--space-3);
   align-items: flex-end;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border);
   border-radius: var(--radius-xl);
   padding: var(--space-2);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);

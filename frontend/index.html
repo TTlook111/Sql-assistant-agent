@@ -100,11 +100,10 @@
                       <label for="dbPassword">Password</label>
                       <input id="dbPassword" type="password" placeholder="密码" />
                     </div>
-                    <button id="dbFetchDatabasesBtn" class="btn btn-secondary btn-sm" type="button">获取数据库列表</button>
                     <div class="db-field">
                       <label for="dbDatabase">Database</label>
                       <select id="dbDatabase" class="select">
-                        <option value="">-- 请先获取数据库列表 --</option>
+                        <option value="">-- 填写连接信息后自动加载 --</option>
                       </select>
                     </div>
                     <div class="db-actions">
@@ -112,10 +111,6 @@
                       <button id="dbDisconnectBtn" class="btn btn-danger btn-sm" type="button" style="display:none">断开</button>
                     </div>
                   </form>
-                  <div id="dbTablesPreview" class="db-tables-preview" style="display:none">
-                    <h4>表列表</h4>
-                    <div id="dbTablesList" class="db-tables-list"></div>
-                  </div>
                 </div>
               </div>
             </div>
