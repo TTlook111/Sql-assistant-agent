@@ -18,6 +18,7 @@ function cacheDom() {
     chatModeTip: document.getElementById('chatModeTip'),
     newChatBtn: document.getElementById('newChatBtn'),
     toggleHistoryBtn: document.getElementById('toggleHistoryBtn'),
+    chatSubmit: document.querySelector('.chat-submit'),
     threadHistory: document.getElementById('threadHistory'),
     threadList: document.getElementById('threadList'),
   };
@@ -128,7 +129,9 @@ export function renderChatWindow() {
       // 结果摘要
       const summary = document.createElement('div');
       summary.className = 'data-summary';
-      summary.textContent = `查询结果：${msg.row_count || msg.data.length} 条记录`;
+      const limitText = msg.truncated ? `，已截断为前 ${msg.row_limit || msg.data.length} 条` : '';
+      const speedText = msg.response_ms ? `，耗时 ${msg.response_ms}ms` : '';
+      summary.textContent = `查询结果：${msg.row_count || msg.data.length} 条记录${limitText}${speedText}`;
       tableContainer.appendChild(summary);
 
       // 渲染表格
@@ -240,6 +243,22 @@ function addChatMessage(role, content, meta = {}) {
   setState({ chats: newChats });
 }
 
+function removePendingMessages() {
+  const { chats } = getState();
+  setState({ chats: chats.filter(msg => !msg.pending) });
+}
+
+function setLoadingState(isLoading) {
+  setState({ isLoading });
+  if (el.chatSubmit) {
+    el.chatSubmit.disabled = isLoading;
+    el.chatSubmit.classList.toggle('is-loading', isLoading);
+  }
+  if (el.chatInput) {
+    el.chatInput.disabled = isLoading;
+  }
+}
+
 /**
  * 获取会话列表
  */
@@ -272,6 +291,9 @@ export async function loadThread(threadId) {
         data: m.data || [],
         columns: m.columns || [],
         row_count: m.row_count || 0,
+        row_limit: m.row_limit || 0,
+        truncated: Boolean(m.truncated),
+        response_ms: m.response_ms || 0,
         execution_error: m.execution_error || '',
         time: Date.now(),
       })),
@@ -326,8 +348,11 @@ async function handleChatSubmit(e) {
     el.chatInput.value = '';
   }
 
-  // 显示加载状态
-  setState({ isLoading: true });
+  addChatMessage('bot', '正在分析问题、生成 SQL 并查询数据库...', {
+    pending: true,
+  });
+  renderChatWindow();
+  setLoadingState(true);
 
   try {
     const { chatThreadId } = getState();
@@ -338,6 +363,8 @@ async function handleChatSubmit(e) {
       setState({ chatThreadId: result.thread_id });
     }
 
+    removePendingMessages();
+
     // 添加AI回复（包含数据）
     addChatMessage('bot', result.answer || '助手未返回内容。', {
       sql_query: result.sql_query || '',
@@ -345,17 +372,21 @@ async function handleChatSubmit(e) {
       data: result.data || [],
       columns: result.columns || [],
       row_count: result.row_count || 0,
+      row_limit: result.row_limit || 0,
+      truncated: Boolean(result.truncated),
+      response_ms: result.response_ms || 0,
       execution_error: result.execution_error || '',
     });
 
     renderChatWindow();
     saveState();
   } catch (err) {
+    removePendingMessages();
     addChatMessage('bot', `请求失败：${err.message || '未知错误'}`);
     renderChatWindow();
     saveState();
   } finally {
-    setState({ isLoading: false });
+    setLoadingState(false);
   }
 }
 

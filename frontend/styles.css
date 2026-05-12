@@ -19,9 +19,23 @@
   justify-content: center;
   background: var(--gradient-auth);
   background-image:
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.2) 0%, transparent 50%),
-    radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.15) 0%, transparent 50%),
+    linear-gradient(115deg, rgba(6, 182, 212, 0.28), transparent 34%),
+    linear-gradient(250deg, rgba(132, 204, 22, 0.16), transparent 32%),
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.18) 0%, transparent 42%),
+    radial-gradient(circle at 80% 80%, rgba(124, 58, 237, 0.22) 0%, transparent 44%),
     var(--gradient-auth);
+  overflow: hidden;
+}
+
+.auth-overlay::before {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.14) 0 1px, transparent 1px 90px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.1) 0 1px, transparent 1px 90px);
+  animation: grid-drift 18s linear infinite;
+  transform: perspective(700px) rotateX(58deg);
 }
 
 .auth-overlay.hidden {
@@ -29,6 +43,8 @@
 }
 
 .auth-card {
+  position: relative;
+  z-index: 1;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -37,6 +53,7 @@
   padding: var(--space-8);
   width: min(400px, 90vw);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  animation: panel-rise 0.55s ease-out;
 }
 
 .auth-title {
@@ -111,6 +128,28 @@
   border-radius: var(--radius-lg);
   margin-bottom: var(--space-3);
   overflow: hidden;
+  position: relative;
+}
+
+.sidebar-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--gradient-energy);
+  background-size: 300% 100%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-base);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.sidebar-panel:hover::before {
+  opacity: 0.7;
+  animation: energy-flow 2.8s linear infinite;
 }
 
 .sidebar-panel-header {
@@ -239,6 +278,7 @@
 .drop-zone:hover {
   border-color: var(--color-accent);
   background: var(--color-accent-subtle);
+  box-shadow: var(--shadow-glow);
 }
 
 .drop-zone.drag-over {
@@ -288,6 +328,8 @@
 .skill-item:hover {
   border-color: var(--color-accent);
   background: var(--color-accent-subtle);
+  transform: translateX(3px);
+  box-shadow: var(--shadow-sm);
 }
 
 .skill-item.selected {
@@ -355,6 +397,7 @@
 
 .thread-item:hover {
   background: var(--color-surface-hover);
+  transform: translateX(3px);
 }
 
 .thread-item.active {

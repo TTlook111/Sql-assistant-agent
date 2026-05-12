@@ -20,7 +20,11 @@ from sql_assistant_agent.auth.jwt import (
     hash_password,
     verify_password,
 )
-from sql_assistant_agent.config.config import PROJECT_ROOT, SKILL_FILES_DIR
+from sql_assistant_agent.config.config import (
+    PROJECT_ROOT,
+    SKILL_FILES_DIR,
+    SQL_ASSISTANT_QUERY_MAX_ROWS,
+)
 from sql_assistant_agent.db.connection import DatabaseConfig, get_db_manager
 from sql_assistant_agent.db.init_db import get_db, get_db_session
 from sql_assistant_agent.db.models import User
@@ -82,6 +86,9 @@ class ChatResponse(BaseModel):
     data: list[dict[str, Any]] = []
     columns: list[str] = []
     row_count: int = 0
+    row_limit: int = SQL_ASSISTANT_QUERY_MAX_ROWS
+    truncated: bool = False
+    response_ms: int = 0
     execution_error: str = ""
 
 
@@ -133,6 +140,11 @@ def _safe_upload_filename(filename: str) -> str:
     raw = Path(filename or "skills.md").name.strip() or "skills.md"
     safe = "".join(ch if (ch.isalnum() or ch in {".", "_", "-"}) else "_" for ch in raw)
     return safe[:120] or "skills.md"
+
+
+def _is_readonly_sql(sql_query: str) -> bool:
+    normalized = sql_query.strip().lower()
+    return normalized.startswith(("select", "show", "describe", "desc", "explain", "with"))
 
 
 # ── Auth Endpoints ──────────────────────────────────────────────────────
@@ -347,10 +359,10 @@ async def upload_skills(
 
 # ── Chat ────────────────────────────────────────────────────────────────
 
-def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, Any]], list[str], str]:
+def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, Any]], list[str], str, bool]:
     """执行SQL查询并返回结果"""
     if not sql_query or not sql_query.strip():
-        return [], [], ""
+        return [], [], "", False
 
     # 清理SQL（移除可能的markdown代码块标记）
     sql_query = sql_query.strip()
@@ -361,14 +373,16 @@ def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, 
     if sql_query.endswith("```"):
         sql_query = sql_query[:-3]
     sql_query = sql_query.strip()
+    if not _is_readonly_sql(sql_query):
+        return [], [], "仅允许执行只读查询语句", False
 
     db_manager = get_db_manager()
     if not db_manager.is_connected(user_id):
-        return [], [], "数据库未连接"
+        return [], [], "数据库未连接", False
 
     conn = db_manager.get_raw_connection(user_id)
     if not conn:
-        return [], [], "获取数据库连接失败"
+        return [], [], "获取数据库连接失败", False
 
     try:
         import pymysql.cursors
@@ -379,7 +393,10 @@ def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, 
         columns = [desc[0] for desc in cursor.description] if cursor.description else []
 
         # 获取数据
-        rows = cursor.fetchall()
+        rows = cursor.fetchmany(SQL_ASSISTANT_QUERY_MAX_ROWS + 1)
+        truncated = len(rows) > SQL_ASSISTANT_QUERY_MAX_ROWS
+        if truncated:
+            rows = rows[:SQL_ASSISTANT_QUERY_MAX_ROWS]
         data = []
         for row in rows:
             row_dict = {}
@@ -394,9 +411,9 @@ def _execute_sql_for_user(user_id: int, sql_query: str) -> tuple[list[dict[str, 
                     row_dict[col] = str(value)
             data.append(row_dict)
 
-        return data, columns, ""
+        return data, columns, "", truncated
     except Exception as e:
-        return [], [], str(e)
+        return [], [], str(e), False
     finally:
         conn.close()
 
@@ -406,6 +423,9 @@ def chat(
     payload: ChatPayload,
     user_id: int = Depends(get_current_user_id),
 ) -> ChatResponse:
+    import time
+
+    started = time.perf_counter()
     agent = get_agent()
     client_thread_id = payload.thread_id or str(uuid4())
     checkpoint_thread_id = f"{user_id}:{client_thread_id}"
@@ -423,12 +443,13 @@ def chat(
     validation_passed = result.get("validation_passed", True)
 
     # 执行SQL查询
-    data, columns, error = _execute_sql_for_user(user_id, sql_query)
+    data, columns, error, truncated = _execute_sql_for_user(user_id, sql_query)
 
     # 生成回答文本
     answer = _extract_assistant_text(result)
     if not error and data:
-        answer = f"查询完成，共返回 {len(data)} 条记录。"
+        suffix = f"（已按上限返回前 {SQL_ASSISTANT_QUERY_MAX_ROWS} 条）" if truncated else ""
+        answer = f"查询完成，共返回 {len(data)} 条记录{suffix}。"
     elif error:
         answer = f"查询执行失败：{error}"
 
@@ -440,6 +461,9 @@ def chat(
         data=data,
         columns=columns,
         row_count=len(data),
+        row_limit=SQL_ASSISTANT_QUERY_MAX_ROWS,
+        truncated=truncated,
+        response_ms=round((time.perf_counter() - started) * 1000),
         execution_error=error,
     )
 

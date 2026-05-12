@@ -184,6 +184,42 @@
   100% { transform: translateX(400%); }
 }
 
+@keyframes energy-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 300% 50%; }
+}
+
+@keyframes grid-pan {
+  0% { background-position: 0 0, 0 0; }
+  100% { background-position: 44px 44px, 44px 44px; }
+}
+
+@keyframes grid-drift {
+  0% { transform: perspective(700px) rotateX(58deg) translateY(0); }
+  100% { transform: perspective(700px) rotateX(58deg) translateY(90px); }
+}
+
+@keyframes scanline {
+  0%, 18% { transform: translateY(-100%); }
+  55%, 100% { transform: translateY(260%); }
+}
+
+@keyframes panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes logo-pulse {
+  0%, 100% { box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 22px rgba(6, 182, 212, 0.42), 0 0 34px rgba(124, 58, 237, 0.26); }
+}
+
 /* ── Ripple Effect ────────────────────────────────────────────────────── */
 .ripple {
   position: relative;

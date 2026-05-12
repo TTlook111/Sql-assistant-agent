@@ -15,9 +15,22 @@ def _get_required_env(key: str) -> str:
     return value
 
 
+def _env_flag(key: str, default: bool) -> bool:
+    value = os.getenv(key)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 DASHSCOPE_API_KEY = _get_required_env("DASHSCOPE_API_KEY")
+DASHSCOPE_MODEL = os.getenv("DASHSCOPE_MODEL", "qwen3-max")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SKILL_FILES_DIR = PROJECT_ROOT / "agent" / "skills"
+
+# Agent speed controls. Defaults favor faster end-to-end responses.
+SQL_ASSISTANT_USE_LLM_PLANNER = _env_flag("SQL_ASSISTANT_USE_LLM_PLANNER", False)
+SQL_ASSISTANT_VALIDATE_SQL = _env_flag("SQL_ASSISTANT_VALIDATE_SQL", False)
+SQL_ASSISTANT_QUERY_MAX_ROWS = int(os.getenv("SQL_ASSISTANT_QUERY_MAX_ROWS", "200"))
 
 # JWT
 JWT_SECRET = os.getenv("JWT_SECRET_KEY", "sql-assistant-jwt-secret-change-me")

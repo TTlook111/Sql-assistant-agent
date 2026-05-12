@@ -18,6 +18,8 @@
   transition: all var(--transition-fast);
   white-space: nowrap;
   user-select: none;
+  position: relative;
+  overflow: hidden;
 }
 
 .btn:disabled {
@@ -35,6 +37,7 @@
 .btn-primary:hover:not(:disabled) {
   opacity: 0.9;
   box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
 }
 
 /* Secondary Button */
@@ -547,16 +550,21 @@
 /* ── Data Table ───────────────────────────────────────────────────────── */
 .data-result-container {
   margin-top: var(--space-3);
-  background: var(--color-bg-primary);
+  background: rgba(255, 255, 255, 0.86);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: panel-rise 0.38s ease-out;
 }
 
 .data-summary {
   padding: var(--space-3) var(--space-4);
-  background: var(--color-accent-subtle);
+  background:
+    linear-gradient(90deg, rgba(6, 182, 212, 0.12), rgba(124, 58, 237, 0.1)),
+    var(--color-accent-subtle);
   border-bottom: 1px solid var(--color-border);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
@@ -591,7 +599,7 @@
 }
 
 .data-table th {
-  background: var(--color-bg-tertiary);
+  background: rgba(241, 245, 249, 0.9);
   font-weight: var(--weight-semibold);
   color: var(--color-text-primary);
   position: sticky;
@@ -607,7 +615,7 @@
 }
 
 .data-table tr:hover td {
-  background: var(--color-accent-subtle);
+  background: rgba(6, 182, 212, 0.07);
 }
 
 .data-table tr:last-child td {
@@ -632,10 +640,11 @@
 /* ── SQL Block (Collapsible) ──────────────────────────────────────────── */
 .sql-block {
   margin-top: var(--space-3);
-  background: var(--color-bg-primary);
+  background: rgba(255, 255, 255, 0.82);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  animation: panel-rise 0.3s ease-out;
 }
 
 .sql-block summary {

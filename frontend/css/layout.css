@@ -4,10 +4,51 @@
 
 /* ── App Container ────────────────────────────────────────────────────── */
 .app {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: var(--gradient-surface);
+  background: transparent;
+  overflow: hidden;
+}
+
+.app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(120deg, rgba(6, 182, 212, 0.1), transparent 28%),
+    linear-gradient(260deg, rgba(124, 58, 237, 0.11), transparent 30%),
+    radial-gradient(circle at 48% 8%, rgba(132, 204, 22, 0.1), transparent 24%);
+}
+
+.fx-grid,
+.fx-scanline {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.fx-grid {
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(6, 182, 212, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 58, 237, 0.08) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, transparent, #000 10%, #000 82%, transparent);
+  animation: grid-pan 16s linear infinite;
+}
+
+.fx-scanline {
+  z-index: 2;
+  background: linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.08), transparent);
+  height: 40%;
+  opacity: 0.45;
+  transform: translateY(-100%);
+  animation: scanline 7s ease-in-out infinite;
 }
 
 /* ── Header ───────────────────────────────────────────────────────────── */
@@ -20,7 +61,9 @@
   justify-content: space-between;
   height: var(--header-height);
   padding: 0 var(--space-6);
-  background: var(--color-bg-primary);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border-bottom: 1px solid var(--color-border);
   box-shadow: var(--shadow-sm);
 }
@@ -57,6 +100,7 @@
   font-weight: var(--weight-bold);
   color: white;
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  animation: logo-pulse 3.5s ease-in-out infinite;
 }
 
 .logo-text {
@@ -100,7 +144,9 @@
   top: var(--header-height);
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-primary);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border-right: 1px solid var(--color-border);
   overflow-y: auto;
   transition: width var(--transition-slow), transform var(--transition-slow);
@@ -210,6 +256,7 @@
   gap: var(--space-3);
   max-width: 85%;
   animation: message-in 0.3s ease-out;
+  will-change: transform, opacity;
 }
 
 .message.user {
@@ -235,8 +282,9 @@
 }
 
 .message.bot .message-avatar {
-  background: var(--color-surface-active);
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.16), rgba(124, 58, 237, 0.16));
   color: var(--color-text-primary);
+  border: 1px solid rgba(6, 182, 212, 0.24);
 }
 
 .message-content {
@@ -261,10 +309,12 @@
 }
 
 .message.bot .message-bubble {
-  background: var(--color-bg-secondary);
+  background: rgba(255, 255, 255, 0.82);
   color: var(--color-text-primary);
   border: 1px solid var(--color-border);
   border-bottom-left-radius: var(--radius-sm);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .message-time {
@@ -353,6 +403,7 @@
 .chat-input-wrapper:focus-within {
   border-color: var(--color-accent);
   box-shadow: var(--shadow-glow);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .chat-input {
@@ -387,6 +438,26 @@
 .chat-submit:hover {
   opacity: 0.9;
   transform: scale(1.05);
+}
+
+.chat-submit.is-loading {
+  background: var(--gradient-energy);
+  background-size: 300% 100%;
+  animation: energy-flow 1.4s linear infinite;
+}
+
+.chat-submit.is-loading::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: var(--radius-full);
+  animation: spin 0.7s linear infinite;
+}
+
+.chat-submit.is-loading {
+  font-size: 0;
 }
 
 .chat-submit:disabled {
@@ -471,10 +542,10 @@
 @keyframes message-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(10px) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }

@@ -13,7 +13,12 @@ from sql_assistant_agent.agent.prompts import (
     VALIDATOR_SYSTEM_PROMPT,
 )
 from sql_assistant_agent.agent.state import AgentGraphState, PlannerDecision
-from sql_assistant_agent.config.config import DASHSCOPE_API_KEY
+from sql_assistant_agent.config.config import (
+    DASHSCOPE_API_KEY,
+    DASHSCOPE_MODEL,
+    SQL_ASSISTANT_USE_LLM_PLANNER,
+    SQL_ASSISTANT_VALIDATE_SQL,
+)
 from sql_assistant_agent.db.connection import get_db_manager
 from sql_assistant_agent.db.init_db import get_db_session
 from sql_assistant_agent.db.schema import format_schema_markdown, introspect_schema
@@ -21,7 +26,7 @@ from sql_assistant_agent.runtime.context import get_current_user_id
 from sql_assistant_agent.storage.mysql_skill_store import MySQLSkillStore
 
 _store = MySQLSkillStore()
-_model = ChatTongyi(model="qwen3-max", api_key=DASHSCOPE_API_KEY)
+_model = ChatTongyi(model=DASHSCOPE_MODEL, api_key=DASHSCOPE_API_KEY)
 
 
 def _get_user_id_int() -> int:
@@ -82,6 +87,39 @@ def planner_node(state: AgentGraphState) -> dict[str, Any]:
     user_id = _get_user_id_int()
     user_query = _extract_latest_user_query(state)
     skills_summary = _build_skills_summary(user_id, user_query)
+
+    if not SQL_ASSISTANT_USE_LLM_PLANNER:
+        lowered = user_query.strip().lower()
+        is_chat_only = bool(
+            lowered
+            and len(lowered) <= 12
+            and any(word in lowered for word in ("你好", "hello", "hi", "谢谢", "thanks"))
+        )
+        if is_chat_only:
+            decision: PlannerDecision = {
+                "action": "reply",
+                "skill_name": "",
+                "reasoning": "simple greeting",
+                "reply_text": "你好，我可以帮你把自然语言问题转换成 SQL 并查询数据库。",
+            }
+            return {"planner_decision": decision, "messages": [AIMessage(content=decision["reply_text"])]}
+
+        first_skill = ""
+        for line in skills_summary.splitlines():
+            match = re.match(r"- \*\*(.*?)\*\*", line)
+            if match:
+                first_skill = match.group(1).strip()
+                break
+        decision = {
+            "action": "load_skill" if first_skill else "direct_sql",
+            "skill_name": first_skill,
+            "reasoning": "fast local routing",
+            "reply_text": "",
+        }
+        return {
+            "planner_decision": decision,
+            "messages": [AIMessage(content=f"[规划] {decision['reasoning']}")],
+        }
 
     system_prompt = PLANNER_SYSTEM_PROMPT.format(skills_summary=skills_summary)
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_query)]
@@ -240,6 +278,13 @@ def validator_node(state: AgentGraphState) -> dict[str, Any]:
 
     if not sql_query:
         return {"validation_passed": True, "validation_feedback": ""}
+
+    if not SQL_ASSISTANT_VALIDATE_SQL:
+        return {
+            "validation_passed": True,
+            "validation_feedback": "",
+            "messages": [AIMessage(content="[校验] 已跳过大模型校验以提升响应速度。")],
+        }
 
     if not db_schema:
         db_schema = "未连接数据库，无 Schema 信息。"
