@@ -132,7 +132,10 @@ export function setState(patch) {
  * @returns {object} 状态副本
  */
 export function getState() {
-  return { ...state };
+  return {
+    ...state,
+    selectedIds: new Set(state.selectedIds),  // 深拷贝Set
+  };
 }
 
 /**

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -38,9 +39,12 @@ from sql_assistant_agent.runtime.context import user_context
 from sql_assistant_agent.storage.mysql_skill_store import MySQLSkillStore
 
 app = FastAPI(title="SQL Assistant Agent API", version="0.2.0")
+
+# CORS配置 - 开发环境允许所有来源，生产环境应限制
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -144,8 +148,32 @@ def _safe_upload_filename(filename: str) -> str:
 
 
 def _is_readonly_sql(sql_query: str) -> bool:
+    """检查SQL是否为安全的只读查询"""
     normalized = sql_query.strip().lower()
-    return normalized.startswith(("select", "show", "describe", "desc", "explain", "with"))
+
+    # 只允许以这些关键字开头
+    allowed_starts = ("select", "show", "describe", "desc", "explain", "with")
+    if not normalized.startswith(allowed_starts):
+        return False
+
+    # 禁止包含危险关键字（防止注入）
+    dangerous_keywords = (
+        "insert", "update", "delete", "drop", "alter", "create",
+        "truncate", "replace", "merge", "grant", "revoke",
+        "exec", "execute", "xp_", "sp_",
+    )
+    # 移除字符串字面量后再检查
+    cleaned = re.sub(r"'[^']*'", "", normalized)
+    cleaned = re.sub(r'"[^"]*"', "", cleaned)
+    for keyword in dangerous_keywords:
+        if re.search(r'\b' + keyword + r'\b', cleaned):
+            return False
+
+    # 禁止分号（防止多条语句）
+    if ';' in normalized:
+        return False
+
+    return True
 
 
 def _is_data_catalog_question(message: str) -> bool:
@@ -341,6 +369,7 @@ def database_list(
     """获取MySQL服务器上的数据库列表"""
     import pymysql
 
+    conn = None
     try:
         conn = pymysql.connect(
             host=payload.host.strip(),
@@ -354,7 +383,6 @@ def database_list(
         cursor.execute("SHOW DATABASES")
         databases = [row[0] for row in cursor.fetchall()]
         cursor.close()
-        conn.close()
 
         # 过滤掉系统数据库
         system_dbs = {'information_schema', 'mysql', 'performance_schema', 'sys'}
@@ -363,6 +391,9 @@ def database_list(
         return {"databases": user_databases}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"获取数据库列表失败: {exc}") from exc
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.post("/api/database/connect")

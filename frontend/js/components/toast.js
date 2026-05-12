@@ -2,6 +2,8 @@
    Toast Component - Notification Messages
    ═══════════════════════════════════════════════════════════════════════ */
 
+import { escapeHtml } from '../utils.js';
+
 // ── Toast Container ──────────────────────────────────────────────────────
 let container = null;
 let toastTimeout = null;
@@ -48,15 +50,6 @@ function createToastElement(message, type = 'info') {
   closeBtn.addEventListener('click', () => removeToast(toast));
 
   return toast;
-}
-
-/**
- * HTML转义（简化版，避免循环依赖）
- */
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text ?? '';
-  return div.innerHTML;
 }
 
 /**

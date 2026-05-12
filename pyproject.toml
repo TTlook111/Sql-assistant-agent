@@ -3,6 +3,9 @@ name = "sql-assistant-agent"
 version = "0.1.0"
 description = "FastAPI + LangGraph based SQL assistant with filesystem skills storage, skills.md upload, and skill routing middleware"
 requires-python = ">=3.13"
+
+[tool.setuptools]
+packages = ["sql_assistant_agent"]
 dependencies = [
     "fastapi>=0.115.0",
     "filelock>=3.16.0",
@@ -20,6 +23,12 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "aiosqlite>=0.22.1",
     "langgraph-checkpoint-sqlite>=3.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
 ]
 
 [[tool.uv.index]]
