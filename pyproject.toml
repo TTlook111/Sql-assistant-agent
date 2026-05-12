@@ -1,7 +1,7 @@
 [project]
 name = "sql-assistant-agent"
 version = "0.1.0"
-description = "FastAPI + LangGraph based SQL assistant with filesystem skills storage, skills.md upload, and skill routing middleware"
+description = "基于 FastAPI + LangGraph 的智能 NL2SQL 助手，让自然语言查询数据库变得简单"
 requires-python = ">=3.13"
 
 [tool.setuptools]
