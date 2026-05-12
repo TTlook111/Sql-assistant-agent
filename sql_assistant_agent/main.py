@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -145,6 +146,59 @@ def _safe_upload_filename(filename: str) -> str:
 def _is_readonly_sql(sql_query: str) -> bool:
     normalized = sql_query.strip().lower()
     return normalized.startswith(("select", "show", "describe", "desc", "explain", "with"))
+
+
+def _is_data_catalog_question(message: str) -> bool:
+    text = re.sub(r"\s+", "", message.lower())
+    catalog_patterns = (
+        "可以查询哪些数据",
+        "能查询哪些数据",
+        "可以查哪些数据",
+        "能查哪些数据",
+        "有哪些数据可以查",
+        "有哪些可以查询",
+        "能查什么",
+        "可以查什么",
+        "查询范围",
+        "数据范围",
+    )
+    return any(pattern in text for pattern in catalog_patterns)
+
+
+def _contains_chinese(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+
+
+def _format_data_catalog_answer(user_id: int) -> str:
+    db_manager = get_db_manager()
+    info = db_manager.get_connection_info(user_id)
+    if not info:
+        return "当前还没有连接数据库。请先连接数据库，我再告诉你可以查询哪些业务数据。"
+
+    topics: list[str] = []
+    for index, table in enumerate(info.tables[:12], start=1):
+        comment = str(table.get("comment") or "").strip()
+        if _contains_chinese(comment):
+            topic = comment
+        else:
+            topic = f"第 {index} 类业务数据"
+        topics.append(f"{index}. {topic}")
+
+    if not topics:
+        return "当前数据库已连接，但还没有识别到可展示的数据范围。你可以先重新连接数据库刷新结构信息。"
+
+    extra = ""
+    if len(info.tables) > len(topics):
+        extra = f"\n\n还有 {len(info.tables) - len(topics)} 类数据没有展开显示。"
+    examples = "\n\n你可以直接这样问：\n- 查询最近十条记录\n- 按月份统计销售情况\n- 查找满足某个条件的数据"
+    return "当前可以查询这些业务数据：\n" + "\n".join(topics) + extra + examples
+
+
+def _extract_sql_from_text(text: str) -> str:
+    match = re.search(r"```sql\s*\n?([\s\S]*?)\n?\s*```", text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return ""
 
 
 # ── Auth Endpoints ──────────────────────────────────────────────────────
@@ -426,6 +480,14 @@ def chat(
     import time
 
     started = time.perf_counter()
+    if _is_data_catalog_question(payload.message):
+        return ChatResponse(
+            thread_id=payload.thread_id or str(uuid4()),
+            answer=_format_data_catalog_answer(user_id),
+            validation_passed=True,
+            response_ms=round((time.perf_counter() - started) * 1000),
+        )
+
     agent = get_agent()
     client_thread_id = payload.thread_id or str(uuid4())
     checkpoint_thread_id = f"{user_id}:{client_thread_id}"
@@ -450,6 +512,8 @@ def chat(
     if not error and data:
         suffix = f"（已按上限返回前 {SQL_ASSISTANT_QUERY_MAX_ROWS} 条）" if truncated else ""
         answer = f"查询完成，共返回 {len(data)} 条记录{suffix}。"
+    elif not error and sql_query:
+        answer = "查询完成，未查询到符合条件的数据。"
     elif error:
         answer = f"查询执行失败：{error}"
 
@@ -536,7 +600,7 @@ def get_thread_messages(
     cv = checkpoint_tuple.checkpoint.get("channel_values", {})
     messages = cv.get("messages", [])
 
-    result: list[dict[str, str]] = []
+    result: list[dict[str, Any]] = []
     for msg in messages:
         role = getattr(msg, "type", "")
         content = getattr(msg, "content", "")
@@ -555,13 +619,24 @@ def get_thread_messages(
                 text = " ".join(
                     item.get("text", "") for item in content if isinstance(item, dict)
                 )
-            sql = ""
-            if "```sql" in text:
-                import re
-                m = re.search(r"```sql\s*\n?([\s\S]*?)\n?\s*```", text)
-                if m:
-                    sql = m.group(1).strip()
-            result.append({"role": "bot", "content": text, "sql_query": sql})
+            sql = _extract_sql_from_text(text)
+            item: dict[str, Any] = {"role": "bot", "content": text, "sql_query": sql}
+            if sql:
+                data, columns, error, truncated = _execute_sql_for_user(user_id, sql)
+                if error:
+                    item["execution_error"] = error
+                else:
+                    item["data"] = data
+                    item["columns"] = columns
+                    item["row_count"] = len(data)
+                    item["row_limit"] = SQL_ASSISTANT_QUERY_MAX_ROWS
+                    item["truncated"] = truncated
+                    if data:
+                        suffix = f"（已按上限返回前 {SQL_ASSISTANT_QUERY_MAX_ROWS} 条）" if truncated else ""
+                        item["content"] = f"查询完成，共返回 {len(data)} 条记录{suffix}。"
+                    else:
+                        item["content"] = "查询完成，未查询到符合条件的数据。"
+            result.append(item)
 
     return {"thread_id": thread_id, "messages": result}
 

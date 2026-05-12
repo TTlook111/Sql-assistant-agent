@@ -29,6 +29,7 @@ PLANNER_SYSTEM_PROMPT = """\
 
 SQL_GENERATOR_SYSTEM_PROMPT = """\
 你是一个 SQL 查询专家。根据用户问题、业务技能文档和数据库真实表结构，生成正确的 SQL 查询。
+你必须使用中文理解用户意图；除 SQL 代码里的真实表名、字段名和值以外，不要用英文表达业务含义。
 
 ## 当前业务域技能内容
 {skill_content}
