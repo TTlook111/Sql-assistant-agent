@@ -28,7 +28,7 @@ from sql_assistant_agent.config.config import (
 )
 from sql_assistant_agent.db.connection import DatabaseConfig, get_db_manager
 from sql_assistant_agent.db.init_db import get_db, get_db_session
-from sql_assistant_agent.db.models import User
+from sql_assistant_agent.db.models import ChatMessage, ChatThread, User
 from sql_assistant_agent.db.schema import (
     format_schema_markdown,
     get_tables_summary,
@@ -194,11 +194,87 @@ def _format_data_catalog_answer(user_id: int) -> str:
     return "当前可以查询这些业务数据：\n" + "\n".join(topics) + extra + examples
 
 
+def _build_suggested_questions(user_id: int) -> list[str]:
+    base = [
+        "现在可以查询哪些数据？",
+        "查询最近十条记录",
+        "按月份统计数量变化",
+    ]
+    db_manager = get_db_manager()
+    info = db_manager.get_connection_info(user_id)
+    if not info or not info.tables:
+        return base
+
+    suggestions = ["现在可以查询哪些数据？"]
+    for index, table in enumerate(info.tables[:3], start=1):
+        comment = str(table.get("comment") or "").strip()
+        topic = comment if _contains_chinese(comment) else f"第 {index} 类业务数据"
+        suggestions.append(f"查询{topic}的最近十条记录")
+    suggestions.append("按月份统计数量变化")
+    return suggestions[:5]
+
+
 def _extract_sql_from_text(text: str) -> str:
     match = re.search(r"```sql\s*\n?([\s\S]*?)\n?\s*```", text, re.IGNORECASE)
     if match:
         return match.group(1).strip()
     return ""
+
+
+def _get_or_create_chat_thread(
+    db: Session, user_id: int, thread_id: str, first_message: str
+) -> ChatThread:
+    row = db.execute(
+        select(ChatThread).where(
+            ChatThread.user_id == user_id,
+            ChatThread.thread_id == thread_id,
+        )
+    ).scalar_one_or_none()
+    if row:
+        return row
+
+    row = ChatThread(
+        user_id=user_id,
+        thread_id=thread_id,
+        title=first_message.strip()[:200],
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _append_chat_snapshot(
+    *,
+    user_id: int,
+    thread_id: str,
+    user_message: str,
+    response: ChatResponse,
+) -> None:
+    with get_db_session() as db:
+        thread = _get_or_create_chat_thread(db, user_id, thread_id, user_message)
+        db.add(
+            ChatMessage(
+                thread_pk=thread.id,
+                role="user",
+                content=user_message,
+            )
+        )
+        db.add(
+            ChatMessage(
+                thread_pk=thread.id,
+                role="bot",
+                content=response.answer,
+                sql_query=response.sql_query,
+                validation_passed=response.validation_passed,
+                data=response.data,
+                columns=response.columns,
+                row_count=response.row_count,
+                row_limit=response.row_limit,
+                truncated=response.truncated,
+                response_ms=response.response_ms,
+                execution_error=response.execution_error,
+            )
+        )
 
 
 # ── Auth Endpoints ──────────────────────────────────────────────────────
@@ -481,12 +557,20 @@ def chat(
 
     started = time.perf_counter()
     if _is_data_catalog_question(payload.message):
-        return ChatResponse(
-            thread_id=payload.thread_id or str(uuid4()),
+        client_thread_id = payload.thread_id or str(uuid4())
+        response = ChatResponse(
+            thread_id=client_thread_id,
             answer=_format_data_catalog_answer(user_id),
             validation_passed=True,
             response_ms=round((time.perf_counter() - started) * 1000),
         )
+        _append_chat_snapshot(
+            user_id=user_id,
+            thread_id=client_thread_id,
+            user_message=payload.message,
+            response=response,
+        )
+        return response
 
     agent = get_agent()
     client_thread_id = payload.thread_id or str(uuid4())
@@ -517,7 +601,7 @@ def chat(
     elif error:
         answer = f"查询执行失败：{error}"
 
-    return ChatResponse(
+    response = ChatResponse(
         thread_id=client_thread_id,
         answer=answer,
         sql_query=sql_query,
@@ -530,6 +614,13 @@ def chat(
         response_ms=round((time.perf_counter() - started) * 1000),
         execution_error=error,
     )
+    _append_chat_snapshot(
+        user_id=user_id,
+        thread_id=client_thread_id,
+        user_message=payload.message,
+        response=response,
+    )
+    return response
 
 
 # ── Chat History ────────────────────────────────────────────────────────
@@ -546,6 +637,25 @@ def _is_internal_message(msg: Any) -> bool:
 
 @app.get("/api/chat/threads")
 def list_threads(user_id: int = Depends(get_current_user_id)) -> dict[str, Any]:
+    with get_db_session() as db:
+        rows = db.execute(
+            select(ChatThread)
+            .where(ChatThread.user_id == user_id)
+            .order_by(ChatThread.updated_at.desc(), ChatThread.id.desc())
+        ).scalars().all()
+        if rows:
+            return {
+                "items": [
+                    {
+                        "thread_id": row.thread_id,
+                        "first_message": row.title,
+                        "message_count": len(row.messages),
+                        "created_at": row.created_at.isoformat() if row.created_at else "",
+                    }
+                    for row in rows
+                ]
+            }
+
     agent = get_agent()
     checkpointer = agent.checkpointer
     prefix = f"{user_id}:"
@@ -588,6 +698,35 @@ def get_thread_messages(
     thread_id: str,
     user_id: int = Depends(get_current_user_id),
 ) -> dict[str, Any]:
+    with get_db_session() as db:
+        thread = db.execute(
+            select(ChatThread).where(
+                ChatThread.user_id == user_id,
+                ChatThread.thread_id == thread_id,
+            )
+        ).scalar_one_or_none()
+        if thread:
+            messages = sorted(thread.messages, key=lambda item: item.id)
+            return {
+                "thread_id": thread_id,
+                "messages": [
+                    {
+                        "role": msg.role,
+                        "content": msg.content,
+                        "sql_query": msg.sql_query,
+                        "validation_passed": msg.validation_passed,
+                        "data": msg.data or [],
+                        "columns": msg.columns or [],
+                        "row_count": msg.row_count,
+                        "row_limit": msg.row_limit,
+                        "truncated": msg.truncated,
+                        "response_ms": msg.response_ms,
+                        "execution_error": msg.execution_error,
+                    }
+                    for msg in messages
+                ],
+            }
+
     agent = get_agent()
     checkpointer = agent.checkpointer
     checkpoint_thread_id = f"{user_id}:{thread_id}"
@@ -639,6 +778,11 @@ def get_thread_messages(
             result.append(item)
 
     return {"thread_id": thread_id, "messages": result}
+
+
+@app.get("/api/chat/suggestions")
+def get_chat_suggestions(user_id: int = Depends(get_current_user_id)) -> dict[str, Any]:
+    return {"items": _build_suggested_questions(user_id)}
 
 
 # ── Frontend Static Files ───────────────────────────────────────────────

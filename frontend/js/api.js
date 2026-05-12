@@ -182,6 +182,14 @@ export async function fetchThreadMessagesApi(threadId) {
   return apiRequest(`/chat/threads/${threadId}`);
 }
 
+/**
+ * 获取推荐问题
+ * @returns {Promise<{items: string[]}>}
+ */
+export async function fetchSuggestionsApi() {
+  return apiRequest('/chat/suggestions');
+}
+
 // ── Database API ─────────────────────────────────────────────────────────
 
 /**
@@ -256,6 +264,7 @@ export default {
   sendChatApi,
   fetchThreadsApi,
   fetchThreadMessagesApi,
+  fetchSuggestionsApi,
   connectDbApi,
   disconnectDbApi,
   getDbStatusApi,

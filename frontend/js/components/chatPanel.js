@@ -3,12 +3,13 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { getState, setState, subscribe, saveState } from '../state.js';
-import { sendChatApi, fetchThreadsApi, fetchThreadMessagesApi } from '../api.js';
+import { sendChatApi, fetchThreadsApi, fetchThreadMessagesApi, fetchSuggestionsApi } from '../api.js';
 import { showToast } from './toast.js';
 import { escapeHtml, formatRelativeTime } from '../utils.js';
 
 // ── DOM References ───────────────────────────────────────────────────────
 let el = {};
+let suggestedQuestions = [];
 
 function cacheDom() {
   el = {
@@ -75,6 +76,49 @@ function renderDataTable(data, columns) {
   return tableWrapper;
 }
 
+function downloadCsv(data, columns) {
+  if (!data?.length || !columns?.length) return;
+  const escapeCell = value => {
+    if (value === null || value === undefined) return '';
+    const text = String(value).replace(/"/g, '""');
+    return /[",\n\r]/.test(text) ? `"${text}"` : text;
+  };
+  const csv = [
+    columns.map(escapeCell).join(','),
+    ...data.map(row => columns.map(col => escapeCell(row[col])).join(',')),
+  ].join('\n');
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `query-result-${Date.now()}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function renderSqlBlock(sqlQuery) {
+  if (!sqlQuery) return null;
+  const sqlBlock = document.createElement('details');
+  sqlBlock.className = 'sql-block';
+
+  const sqlHeader = document.createElement('summary');
+  sqlHeader.className = 'sql-header';
+  sqlHeader.textContent = '查看 SQL 查询';
+  sqlBlock.appendChild(sqlHeader);
+
+  const sqlContent = document.createElement('div');
+  sqlContent.className = 'sql-content';
+
+  const code = document.createElement('code');
+  code.textContent = sqlQuery;
+  sqlContent.appendChild(code);
+
+  sqlBlock.appendChild(sqlContent);
+  return sqlBlock;
+}
+
 // ── Render Functions ─────────────────────────────────────────────────────
 
 /**
@@ -94,9 +138,15 @@ export function renderChatWindow() {
         <div class="empty-state-icon">💬</div>
         <div class="empty-state-title">开始对话</div>
         <div class="empty-state-text">输入你的问题，AI助手将查询数据库并返回结果</div>
+        <div class="suggestion-list">
+          ${suggestedQuestions.map(item => `<button class="suggestion-chip" type="button">${escapeHtml(item)}</button>`).join('')}
+        </div>
       </div>
     `;
     el.chatWindow.innerHTML = welcomeHtml;
+    el.chatWindow.querySelectorAll('.suggestion-chip').forEach(button => {
+      button.addEventListener('click', () => submitQuestion(button.textContent || ''));
+    });
     return;
   }
 
@@ -134,6 +184,16 @@ export function renderChatWindow() {
       summary.textContent = `查询结果：${msg.row_count || msg.data.length} 条记录${limitText}${speedText}`;
       tableContainer.appendChild(summary);
 
+      const actions = document.createElement('div');
+      actions.className = 'data-actions';
+      const exportBtn = document.createElement('button');
+      exportBtn.className = 'btn btn-ghost btn-sm';
+      exportBtn.type = 'button';
+      exportBtn.textContent = '导出 CSV';
+      exportBtn.addEventListener('click', () => downloadCsv(msg.data, msg.columns));
+      actions.appendChild(exportBtn);
+      tableContainer.appendChild(actions);
+
       // 渲染表格
       const table = renderDataTable(msg.data, msg.columns);
       if (table) {
@@ -141,6 +201,8 @@ export function renderChatWindow() {
       }
 
       content.appendChild(tableContainer);
+      const sqlBlock = renderSqlBlock(msg.sql_query);
+      if (sqlBlock) content.appendChild(sqlBlock);
     }
     // 如果有错误，显示错误信息
     else if (msg.execution_error) {
@@ -151,22 +213,7 @@ export function renderChatWindow() {
     }
     // SQL代码块（折叠显示）
     else if (msg.sql_query) {
-      const sqlBlock = document.createElement('details');
-      sqlBlock.className = 'sql-block';
-
-      const sqlHeader = document.createElement('summary');
-      sqlHeader.className = 'sql-header';
-      sqlHeader.textContent = '查看 SQL 查询';
-      sqlBlock.appendChild(sqlHeader);
-
-      const sqlContent = document.createElement('div');
-      sqlContent.className = 'sql-content';
-
-      const code = document.createElement('code');
-      code.textContent = msg.sql_query;
-      sqlContent.appendChild(code);
-
-      sqlBlock.appendChild(sqlContent);
+      const sqlBlock = renderSqlBlock(msg.sql_query);
       content.appendChild(sqlBlock);
     }
 
@@ -328,8 +375,10 @@ export function startNewChat() {
  */
 async function handleChatSubmit(e) {
   e.preventDefault();
+  await submitQuestion(el.chatInput?.value?.trim() || '');
+}
 
-  const text = el.chatInput?.value?.trim();
+async function submitQuestion(text) {
   if (!text) return;
 
   // 检查是否已连接数据库
@@ -390,6 +439,20 @@ async function handleChatSubmit(e) {
   }
 }
 
+async function fetchSuggestions() {
+  try {
+    const result = await fetchSuggestionsApi();
+    suggestedQuestions = result.items || [];
+    renderChatWindow();
+  } catch {
+    suggestedQuestions = [
+      '现在可以查询哪些数据？',
+      '查询最近十条记录',
+      '按月份统计数量变化',
+    ];
+  }
+}
+
 /**
  * 处理新对话按钮点击
  */
@@ -446,6 +509,7 @@ export function initChatPanel() {
 
   // 初始渲染
   renderChatWindow();
+  fetchSuggestions();
 }
 
 export default {
