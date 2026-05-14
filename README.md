@@ -137,6 +137,11 @@ APP_DB_NAME=sql_assistant
 
 # 可选：JWT 密钥
 JWT_SECRET_KEY=your-secret-key
+
+# 可选：Agent 自检与纠错
+SQL_ASSISTANT_VALIDATE_SQL=false
+SQL_ASSISTANT_REVIEW_ANSWER=true
+SQL_ASSISTANT_AUTO_RETRY_ON_REVIEW_FAIL=true
 ```
 
 ### 3. 启动服务
@@ -253,6 +258,10 @@ uv run pytest tests/ --cov=sql_assistant_agent
 | `APP_DB_NAME` | ❌ | 应用数据库名 | sql_assistant |
 | `JWT_SECRET_KEY` | ❌ | JWT 签名密钥 | 内置默认值 |
 | `CORS_ORIGINS` | ❌ | CORS 允许的来源 | * |
+| `SQL_ASSISTANT_VALIDATE_SQL` | ❌ | 生成 SQL 后调用大模型校验语法、字段和业务逻辑 | false |
+| `SQL_ASSISTANT_REVIEW_ANSWER` | ❌ | SQL 执行后审查结果是否满足用户问题 | true |
+| `SQL_ASSISTANT_AUTO_RETRY_ON_REVIEW_FAIL` | ❌ | 最终答案审查失败时自动带反馈重试一次 | true |
+| `SQL_ASSISTANT_QUERY_MAX_ROWS` | ❌ | 单次查询最多返回的数据行数 | 200 |
 
 ## 注意事项
 

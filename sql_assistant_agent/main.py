@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from langchain.messages import HumanMessage, SystemMessage
+from langchain_community.chat_models.tongyi import ChatTongyi
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,9 +26,13 @@ from sql_assistant_agent.auth.jwt import (
     verify_password,
 )
 from sql_assistant_agent.config.config import (
+    DASHSCOPE_API_KEY,
+    DASHSCOPE_MODEL,
     PROJECT_ROOT,
     SKILL_FILES_DIR,
+    SQL_ASSISTANT_AUTO_RETRY_ON_REVIEW_FAIL,
     SQL_ASSISTANT_QUERY_MAX_ROWS,
+    SQL_ASSISTANT_REVIEW_ANSWER,
 )
 from sql_assistant_agent.db.connection import DatabaseConfig, get_db_manager
 from sql_assistant_agent.db.init_db import get_db, get_db_session
@@ -51,6 +58,7 @@ app.add_middleware(
 )
 
 skill_store = MySQLSkillStore()
+review_model = ChatTongyi(model=DASHSCOPE_MODEL, api_key=DASHSCOPE_API_KEY)
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 SKILL_FILES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -95,6 +103,10 @@ class ChatResponse(BaseModel):
     truncated: bool = False
     response_ms: int = 0
     execution_error: str = ""
+    review_passed: bool = True
+    review_feedback: str = ""
+    review_suggestion: str = ""
+    retry_count: int = 0
 
 
 class DatabaseConnectPayload(BaseModel):
@@ -139,6 +151,16 @@ def _extract_assistant_text(result: dict[str, Any]) -> str:
                     continue
                 return text
     return "未获取到助手回复。"
+
+
+def _parse_json_from_text(text: str) -> dict[str, Any] | None:
+    match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?\s*```", text)
+    raw = match.group(1).strip() if match else text.strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _safe_upload_filename(filename: str) -> str:
@@ -195,6 +217,123 @@ def _is_data_catalog_question(message: str) -> bool:
 
 def _contains_chinese(text: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+
+
+def _summarize_query_result(
+    data: list[dict[str, Any]],
+    columns: list[str],
+    error: str,
+    truncated: bool,
+) -> str:
+    if error:
+        return f"执行错误：{error}"
+
+    sample_rows = data[:5]
+    summary = {
+        "row_count": len(data),
+        "columns": columns,
+        "truncated": truncated,
+        "sample_rows": sample_rows,
+    }
+    return json.dumps(summary, ensure_ascii=False, default=str)
+
+
+def _review_answer_satisfaction(
+    *,
+    user_message: str,
+    sql_query: str,
+    answer: str,
+    data: list[dict[str, Any]],
+    columns: list[str],
+    error: str,
+    truncated: bool,
+) -> dict[str, Any]:
+    if not SQL_ASSISTANT_REVIEW_ANSWER:
+        return {"passed": True, "feedback": "", "suggestion": ""}
+
+    if error:
+        return {
+            "passed": False,
+            "feedback": f"SQL 执行失败，无法满足用户查询需求：{error}",
+            "suggestion": "请根据执行错误修正 SQL，再重新查询。",
+        }
+
+    if not sql_query.strip():
+        return {
+            "passed": False,
+            "feedback": "没有生成可执行 SQL，无法判断或满足用户的数据查询需求。",
+            "suggestion": "请结合用户问题和数据库结构生成只读 SQL。",
+        }
+
+    result_summary = _summarize_query_result(data, columns, error, truncated)
+    system_prompt = """\
+你是 SQL 助手的最终答案审查器。请判断当前 SQL、执行结果和回答是否满足用户的原始问题。
+
+审查标准：
+1. SQL 查询目标是否覆盖用户问题的核心对象、过滤条件、排序、聚合或时间范围。
+2. 返回字段是否足以回答问题，且没有明显查询了无关字段。
+3. 执行结果是否能支撑当前回答。
+4. 如果结果为空，只在 SQL 条件合理时才算通过。
+5. 不要因为回答文字简短就判失败；只要数据和 SQL 能回答问题即可通过。
+
+只输出 JSON，不要输出其他内容：
+```json
+{
+  "passed": true 或 false,
+  "feedback": "简短说明",
+  "suggestion": "如果不通过，给出如何修正 SQL 或回答的建议"
+}
+```
+"""
+    human_prompt = f"""\
+用户问题：
+{user_message}
+
+SQL：
+```sql
+{sql_query}
+```
+
+执行结果摘要：
+{result_summary}
+
+当前回答：
+{answer}
+"""
+    try:
+        response = review_model.invoke(
+            [SystemMessage(content=system_prompt), HumanMessage(content=human_prompt)]
+        )
+    except Exception as exc:
+        return {
+            "passed": True,
+            "feedback": f"答案审查调用失败，已保留查询结果：{exc}",
+            "suggestion": "",
+        }
+
+    response_text = response.content if isinstance(response.content, str) else ""
+    parsed = _parse_json_from_text(response_text)
+    if not parsed or "passed" not in parsed:
+        return {
+            "passed": True,
+            "feedback": "答案审查结果解析失败，已保留查询结果。",
+            "suggestion": "",
+        }
+
+    return {
+        "passed": bool(parsed.get("passed")),
+        "feedback": str(parsed.get("feedback") or "").strip(),
+        "suggestion": str(parsed.get("suggestion") or "").strip(),
+    }
+
+
+def _is_retryable_review_failure(sql_query: str, error: str) -> bool:
+    if not sql_query.strip():
+        return True
+    if not error:
+        return True
+    non_retryable_errors = ("数据库未连接", "获取数据库连接失败")
+    return error not in non_retryable_errors
 
 
 def _format_data_catalog_answer(user_id: int) -> str:
@@ -632,6 +771,66 @@ def chat(
     elif error:
         answer = f"查询执行失败：{error}"
 
+    review = _review_answer_satisfaction(
+        user_message=payload.message,
+        sql_query=sql_query,
+        answer=answer,
+        data=data,
+        columns=columns,
+        error=error,
+        truncated=truncated,
+    )
+    retry_count = 0
+
+    if (
+        SQL_ASSISTANT_AUTO_RETRY_ON_REVIEW_FAIL
+        and not review["passed"]
+        and _is_retryable_review_failure(sql_query, error)
+    ):
+        retry_count = 1
+        retry_message = (
+            f"{payload.message}\n\n"
+            "上一次结果未通过最终答案审查，请重新生成 SQL。\n"
+            f"审查反馈：{review['feedback']}\n"
+            f"修正建议：{review['suggestion']}"
+        )
+        with user_context(str(user_id)):
+            try:
+                result = agent.invoke(
+                    {"messages": [{"role": "user", "content": retry_message}]},
+                    config,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"纠错重试失败: {exc}") from exc
+
+        sql_query = result.get("sql_query", "")
+        validation_passed = result.get("validation_passed", validation_passed)
+        data, columns, error, truncated = _execute_sql_for_user(user_id, sql_query)
+        answer = _extract_assistant_text(result)
+        if not error and data:
+            suffix = f"（已按上限返回前 {SQL_ASSISTANT_QUERY_MAX_ROWS} 条）" if truncated else ""
+            answer = f"查询完成，共返回 {len(data)} 条记录{suffix}。"
+        elif not error and sql_query:
+            answer = "查询完成，未查询到符合条件的数据。"
+        elif error:
+            answer = f"查询执行失败：{error}"
+
+        review = _review_answer_satisfaction(
+            user_message=payload.message,
+            sql_query=sql_query,
+            answer=answer,
+            data=data,
+            columns=columns,
+            error=error,
+            truncated=truncated,
+        )
+
+    validation_passed = validation_passed and bool(review["passed"])
+    if review["feedback"] and not review["passed"]:
+        answer = f"{answer}\n\n自检未通过：{review['feedback']}"
+        if review["suggestion"]:
+            answer += f"\n建议：{review['suggestion']}"
+
     response = ChatResponse(
         thread_id=client_thread_id,
         answer=answer,
@@ -644,6 +843,10 @@ def chat(
         truncated=truncated,
         response_ms=round((time.perf_counter() - started) * 1000),
         execution_error=error,
+        review_passed=bool(review["passed"]),
+        review_feedback=review["feedback"],
+        review_suggestion=review["suggestion"],
+        retry_count=retry_count,
     )
     _append_chat_snapshot(
         user_id=user_id,

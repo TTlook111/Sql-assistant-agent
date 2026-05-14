@@ -1,6 +1,12 @@
 """核心功能测试"""
 import pytest
-from sql_assistant_agent.main import _is_readonly_sql, _safe_upload_filename
+from sql_assistant_agent.main import (
+    _is_readonly_sql,
+    _is_retryable_review_failure,
+    _review_answer_satisfaction,
+    _safe_upload_filename,
+    _summarize_query_result,
+)
 
 
 class TestIsReadonlySql:
@@ -76,3 +82,54 @@ class TestSafeUploadFilename:
         long_name = "a" * 200 + ".md"
         result = _safe_upload_filename(long_name)
         assert len(result) <= 120
+
+
+class TestAnswerReviewHelpers:
+    """测试答案自检辅助函数"""
+
+    def test_summarize_query_result(self):
+        summary = _summarize_query_result(
+            data=[{"name": "张三"}, {"name": "李四"}],
+            columns=["name"],
+            error="",
+            truncated=False,
+        )
+
+        assert '"row_count": 2' in summary
+        assert '"columns": ["name"]' in summary
+        assert "张三" in summary
+
+    def test_review_fails_on_execution_error(self):
+        review = _review_answer_satisfaction(
+            user_message="查询老师",
+            sql_query="SELECT name FROM teachers",
+            answer="查询执行失败",
+            data=[],
+            columns=[],
+            error="Unknown column 'name'",
+            truncated=False,
+        )
+
+        assert review["passed"] is False
+        assert "SQL 执行失败" in review["feedback"]
+
+    def test_review_fails_without_sql(self):
+        review = _review_answer_satisfaction(
+            user_message="查询老师",
+            sql_query="",
+            answer="未获取到助手回复。",
+            data=[],
+            columns=[],
+            error="",
+            truncated=False,
+        )
+
+        assert review["passed"] is False
+        assert "没有生成可执行 SQL" in review["feedback"]
+
+    def test_retryable_review_failure(self):
+        assert _is_retryable_review_failure("", "") is True
+        assert _is_retryable_review_failure("SELECT bad_col FROM t", "Unknown column") is True
+        assert _is_retryable_review_failure("SELECT 1", "") is True
+        assert _is_retryable_review_failure("SELECT 1", "数据库未连接") is False
+        assert _is_retryable_review_failure("SELECT 1", "获取数据库连接失败") is False
