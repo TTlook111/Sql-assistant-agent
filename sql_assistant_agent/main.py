@@ -173,6 +173,13 @@ def _is_readonly_sql(sql_query: str) -> bool:
     """检查SQL是否为安全的只读查询"""
     normalized = sql_query.strip().lower()
 
+    # 去掉末尾单个分号（LLM 常规输出），但禁止中间分号（多语句注入）
+    if normalized.endswith(';'):
+        normalized = normalized[:-1].strip()
+
+    if not normalized:
+        return False
+
     # 只允许以这些关键字开头
     allowed_starts = ("select", "show", "describe", "desc", "explain", "with")
     if not normalized.startswith(allowed_starts):

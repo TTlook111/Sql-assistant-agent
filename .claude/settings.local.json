@@ -3,7 +3,10 @@
     "allow": [
       "Bash(uv run *)",
       "Bash(taskkill //F //IM python.exe)",
-      "Bash(curl -s http://localhost:8000/api/health)"
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin123\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/auth/register -H \"Content-Type: application/json\" -d '{\"username\":\"test\",\"password\":\"test123\"}')",
+      "Bash(curl *)"
     ]
   }
 }
